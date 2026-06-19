@@ -1,0 +1,10 @@
+{
+  "name": "zeus-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo 'no tests yet'"
+  },
+  "dependencies": {}
+}

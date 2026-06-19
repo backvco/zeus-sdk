@@ -1,0 +1,8 @@
+node_modules/
+.env
+data/
+drizzle/
+dist/
+*.mmdb
+.svelte-kit/
+build/
