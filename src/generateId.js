@@ -19,7 +19,7 @@ function randomBytes(n) {
  * when debugging logs, DB rows, or API payloads that mix many ID types.
  *
  * @example
- * import { generateId, ENTITY } from 'zeus-sdk';
+ * import { generateId, ENTITY } from '@zeusk8s/sdk';
  *
  * const orgId      = generateId(ENTITY.ORG);           // "org_..."
  * const userId     = generateId(ENTITY.USER);          // "usr_..."
@@ -94,7 +94,7 @@ export const ENTITY = {
  * @returns {string} Typed ID string.
  *
  * @example
- * import { generateId, ENTITY } from 'zeus-sdk';
+ * import { generateId, ENTITY } from '@zeusk8s/sdk';
  *
  * // Generate IDs before inserting records
  * const id = generateId(ENTITY.INSTANCE);   // "ins_k7p2mqxnb3..."

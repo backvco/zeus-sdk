@@ -1,7 +1,7 @@
 # CLAUDE.md — zeus-sdk
 
 Public JavaScript client for the Zeus Console API. Works in the browser (session-cookie auth) and
-Node.js (license-key auth). Consumed by the UI, the API, and Zeus instances via `file:../zeus-sdk`.
+Node.js (license-key auth). Consumed by the UI, the API, and Zeus instances via `file:../sdks/zeus-sdk`.
 Read `/docker/zeus-console/CLAUDE.md` first. Branch from `dev`.
 
 ## Shape
@@ -27,6 +27,6 @@ src/
   ```
 - Method name + endpoint must match the API route 1:1. Add the route in `zeus-console-api` first.
 - **Keep the JSDoc** — it documents params/return shape and is this package's only docs.
-- Admin/spam surfaces do NOT go here — they live in `zeus-sdk-internal` (`sdk.internal.*`).
+- Admin/spam surfaces do NOT go here — they live in `@zeusk8s/sdk-internal` (`sdk.internal.*`).
 - Files carry `// @ts-nocheck`; keep it.
 - `file:`-linked, so changes are live in the UI/API immediately — no publish needed in dev.

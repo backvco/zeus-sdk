@@ -1,8 +1,42 @@
 {
-  "name": "zeus-sdk",
+  "name": "@zeusk8s/sdk",
   "version": "0.1.0",
+  "description": "Official JavaScript client for the Zeus Console API — account management, billing, licensing, instances, orgs, users, support and audit. Browser (session-cookie) and Node (license key).",
   "type": "module",
   "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./base": "./src/base.js",
+    "./services/*": "./src/services/*.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "zeus",
+    "zeusk8s",
+    "console",
+    "sdk",
+    "api-client",
+    "billing",
+    "licensing",
+    "kubernetes"
+  ],
+  "author": "Zeus Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/backvco/zeus-sdk.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "scripts": {
     "test": "echo 'no tests yet'"
   },
