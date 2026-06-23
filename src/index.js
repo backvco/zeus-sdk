@@ -9,7 +9,7 @@
  *
  * Browser (SvelteKit / React / vanilla — session cookie handles auth):
  *
- *   import { ZeusConsoleSDK } from 'zeus-sdk';
+ *   import { ZeusConsoleSDK } from '@zeusk8s/sdk';
  *   const sdk = new ZeusConsoleSDK({ baseURL: '/api' });
  *
  *   await sdk.auth.login({ email: 'alice@example.com', password: 'hunter2' });
@@ -21,7 +21,7 @@
  *
  * Node.js / server-to-server (license key):
  *
- *   import { ZeusConsoleSDK } from 'zeus-sdk';
+ *   import { ZeusConsoleSDK } from '@zeusk8s/sdk';
  *   const sdk = new ZeusConsoleSDK({
  *     baseURL: 'https://console.example.com/api',
  *     token: process.env.ZEUS_LICENSE_KEY,   // "ins_..." key from the console

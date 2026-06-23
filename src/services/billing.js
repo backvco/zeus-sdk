@@ -81,6 +81,27 @@ export class BillingService {
   getPortalUrl() { return this.sdk._fetch('/billing/portal', 'POST', { body: {} }); }
 
   /**
+   * Create a SetupIntent to add a card via Stripe Elements. Returns the client secret.
+   * @returns {Promise<{ clientSecret: string }>}
+   */
+  createSetupIntent() { return this.sdk._fetch('/billing/payment-methods/setup-intent', 'POST', { body: {} }); }
+
+  /**
+   * List the org's saved cards (account-level payment methods).
+   * @returns {Promise<{ paymentMethods: Array<{ id: string, brand: string, last4: string, expMonth: number, expYear: number, isDefault: boolean }> }>}
+   */
+  listPaymentMethods() { return this.sdk._fetch('/billing/payment-methods', 'GET'); }
+
+  /** Set an account card as the default. @param {{id:string}} p */
+  setDefaultPaymentMethod({ id }) { return this.sdk._fetch(`/billing/payment-methods/${id}/default`, 'POST', { body: {} }); }
+
+  /** Remove (detach) an account card. @param {{id:string}} p */
+  deletePaymentMethod({ id }) { return this.sdk._fetch(`/billing/payment-methods/${id}`, 'DELETE'); }
+
+  /** Link an account card to an instance's subscription. @param {{paymentMethodId:string, instanceId:string}} p */
+  linkPaymentMethod({ paymentMethodId, instanceId }) { return this.sdk._fetch('/billing/payment-methods/link', 'POST', { body: { paymentMethodId, instanceId } }); }
+
+  /**
    * List all invoices for an instance, newest first.
    *
    * @param {object} params
