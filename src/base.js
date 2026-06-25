@@ -10,6 +10,9 @@
  *              cookie via `credentials: 'include'`.
  *   Server   — pass `token` (a license key) to the constructor or call
  *              `setToken()` later. Sent as the `X-License-Key` header.
+ *   Instance — pass `privateKey` (CryptoKey or PEM string) to sign request
+ *              bodies with RS256. Sets `X-Zeus-Signature` on every request
+ *              that has a body. Compatible with `token` — both headers are sent.
  *
  * @example
  * // Direct use (uncommon — prefer ZeusConsoleSDK)
@@ -19,15 +22,22 @@
  */
 export class BaseSDK {
   /**
-   * @param {object} [opts]
-   * @param {string} [opts.baseURL]  - API origin + prefix, e.g. "https://console.example.com/api".
-   *                                   Trailing slash is stripped automatically.
-   * @param {string} [opts.token]    - License key for server-to-server calls (X-License-Key header).
-   *                                   Omit when running in the browser — session cookie handles auth.
+   * @param {object}              [opts]
+   * @param {string}              [opts.baseURL]    - API origin + prefix, e.g. "https://console.example.com/api".
+   *                                                  Trailing slash is stripped automatically.
+   * @param {string}              [opts.token]      - License key for server-to-server calls (X-License-Key header).
+   *                                                  Omit when running in the browser — session cookie handles auth.
+   * @param {CryptoKey|string}    [opts.privateKey] - RS256 private key for instance→console request signing.
+   *                                                  Pass a CryptoKey (RSASSA-PKCS1-v1_5 / SHA-256) or a
+   *                                                  PKCS#8 PEM string — imported lazily on first signed request.
+   *                                                  When set, every request with a body gets an X-Zeus-Signature
+   *                                                  header (base64url RS256 signature over the raw JSON body).
    */
-  constructor({ baseURL, token } = {}) {
+  constructor({ baseURL, token, privateKey } = {}) {
     this.baseURL = (baseURL || '').replace(/\/$/, '');
     this.token = token || null;
+    this.privateKey = privateKey || null;
+    this._cryptoKey = null;
     this.debugMode = false;
   }
 
@@ -52,6 +62,34 @@ export class BaseSDK {
    * sdk.debug(false);               // disable
    */
   debug(on = true) { this.debugMode = on; return this; }
+
+  // Resolve this.privateKey to a CryptoKey, importing from PEM on first call.
+  async _resolveKey() {
+    if (this._cryptoKey) return this._cryptoKey;
+    if (this.privateKey && typeof this.privateKey === 'object') {
+      this._cryptoKey = this.privateKey;
+      return this._cryptoKey;
+    }
+    // PEM → PKCS#8 DER → CryptoKey
+    const pem = this.privateKey;
+    const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+    const der = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    this._cryptoKey = await globalThis.crypto.subtle.importKey(
+      'pkcs8', der.buffer,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false, ['sign'],
+    );
+    return this._cryptoKey;
+  }
+
+  // Sign bodyStr with RS256, return base64url-encoded signature.
+  async _sign(bodyStr) {
+    const key = await this._resolveKey();
+    const data = new TextEncoder().encode(bodyStr);
+    const sig = await globalThis.crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, data);
+    return btoa(String.fromCharCode(...new Uint8Array(sig)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
 
   /**
    * Core HTTP request. All service methods call this.
@@ -101,7 +139,11 @@ export class BaseSDK {
     if (this.token) h['X-License-Key'] = this.token;
 
     const opts = { method, headers: h, credentials: 'include' };
-    if (hasBody) opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    if (hasBody) {
+      const serialized = typeof body === 'string' ? body : JSON.stringify(body);
+      if (this.privateKey) h['X-Zeus-Signature'] = await this._sign(serialized);
+      opts.body = serialized;
+    }
 
     const res = await fetch(url, opts);
     const ct = res.headers.get('content-type') || '';

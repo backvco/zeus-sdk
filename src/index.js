@@ -59,6 +59,7 @@
  *   sdk.support     — temporary support access grants and sessions
  *   sdk.audit       — submit and query audit log events
  *   sdk.notices     — system notices and dismissals
+ *   sdk.sso         — instance-initiated SSO nonce validation
  *
  * Admin and platform-operations surfaces (org management, plans, spam config,
  * SMTP, instance enable/disable) live in the separate zeus-sdk-internal package,
@@ -74,16 +75,20 @@ import { UsersService } from './services/users.js';
 import { SupportService } from './services/support.js';
 import { AuditService } from './services/audit.js';
 import { NoticesService } from './services/notices.js';
+import { SsoService } from './services/sso.js';
 
 export { generateId, ENTITY } from './generateId.js';
 export { BaseSDK } from './base.js';
 
 export class ZeusConsoleSDK extends BaseSDK {
   /**
-   * @param {object} [opts]
-   * @param {string} [opts.baseURL] - API base URL, e.g. "/api" or "https://console.example.com/api".
-   * @param {string} [opts.token]   - License key for server-to-server auth ("ins_..." prefix).
-   *                                   Omit in the browser — the session cookie is used automatically.
+   * @param {object}           [opts]
+   * @param {string}           [opts.baseURL]    - API base URL, e.g. "/api" or "https://console.example.com/api".
+   * @param {string}           [opts.token]      - License key for server-to-server auth ("ins_..." prefix).
+   *                                               Omit in the browser — the session cookie is used automatically.
+   * @param {CryptoKey|string} [opts.privateKey] - RS256 private key for instance→console request signing.
+   *                                               Pass a CryptoKey or PKCS#8 PEM string. When set, every
+   *                                               request with a body receives an X-Zeus-Signature header.
    */
   constructor(opts = {}) {
     super(opts);
@@ -95,5 +100,6 @@ export class ZeusConsoleSDK extends BaseSDK {
     this.support = new SupportService(this);
     this.audit = new AuditService(this);
     this.notices = new NoticesService(this);
+    this.sso = new SsoService(this);
   }
 }
