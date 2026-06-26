@@ -220,4 +220,17 @@ export class InstancesService {
    * await sdk.instances.pushKeypair({ id: 'ins_abc123', publicKey });
    */
   pushKeypair({ id, publicKey }) { return this.sdk._fetch(`/instances/${id}/keypair`, 'POST', { body: { publicKey } }); }
+
+  /**
+   * List the users with access (SSO) to this instance/cluster, plus seat usage.
+   * Each live member counts toward the cluster's seat limit (null = unlimited).
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ members: Array<object>, seatUsed: number, seatLimit: number|null }>}
+   *
+   * @example
+   * const { members, seatUsed, seatLimit } = await sdk.instances.listMembers({ id: 'ins_abc123' });
+   */
+  listMembers({ id }) { return this.sdk._fetch(`/instances/${id}/members`, 'GET'); }
 }
