@@ -19,7 +19,7 @@ function randomBytes(n) {
  * when debugging logs, DB rows, or API payloads that mix many ID types.
  *
  * @example
- * import { generateId, ENTITY } from 'zeus-sdk';
+ * import { generateId, ENTITY } from '@zeusk8s/sdk';
  *
  * const orgId      = generateId(ENTITY.ORG);           // "org_..."
  * const userId     = generateId(ENTITY.USER);          // "usr_..."
@@ -76,6 +76,14 @@ export const ENTITY = {
   // Email
   SMTP_CONFIG:          'smt',   // Outbound SMTP configuration
   EMAIL_LOG:            'eml',   // Sent email record
+
+  // CORS
+  CORS_GROUP:           'cgrp',  // Org-level CORS origin group
+
+  // Permissions
+  PERMISSION_POLICY:    'pol',   // Named permission policy document
+  PERMISSION_ROLE:      'prole', // User-defined permission role (bag of policies)
+  CONSOLE_API_TOKEN:    'ctk',   // Console service API token
 };
 
 /**
@@ -94,7 +102,7 @@ export const ENTITY = {
  * @returns {string} Typed ID string.
  *
  * @example
- * import { generateId, ENTITY } from 'zeus-sdk';
+ * import { generateId, ENTITY } from '@zeusk8s/sdk';
  *
  * // Generate IDs before inserting records
  * const id = generateId(ENTITY.INSTANCE);   // "ins_k7p2mqxnb3..."

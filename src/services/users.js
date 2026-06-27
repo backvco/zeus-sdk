@@ -178,4 +178,75 @@ export class UsersService {
    * await sdk.users.forcePasswordReset({ userId: 'usr_bob' });
    */
   forcePasswordReset({ userId }) { return this.sdk._fetch(`/users/${userId}/force-reset`, 'POST', { body: {} }); }
+
+  /**
+   * Directly create a user with a temporary password (owner/admin only).
+   * Console users are free — no email round-trip. When you don't pass a password,
+   * the API generates one and returns it ONCE (so an admin can relay it).
+   *
+   * @param {object} params
+   * @param {string}  params.email      - New user's email.
+   * @param {string}  params.name       - Display name.
+   * @param {string} [params.role]      - 'owner' | 'admin' | 'member' (default 'member').
+   * @param {string} [params.password]  - Optional explicit password (>= 8 chars).
+   * @returns {Promise<{ user: object, tempPassword: string|null }>}
+   *
+   * @example
+   * const { user, tempPassword } = await sdk.users.create({ email: 'bob@acme.com', name: 'Bob' });
+   */
+  create({ email, name, role, password }) { return this.sdk._fetch('/users', 'POST', { body: { email, name, role, password } }); }
+
+  /**
+   * List the instances/clusters a user can access (their cluster-access grants).
+   *
+   * @param {object} params
+   * @param {string} params.userId - User ID ("usr_...").
+   * @returns {Promise<{ instances: Array<object> }>}
+   *
+   * @example
+   * const { instances } = await sdk.users.listInstances({ userId: 'usr_bob' });
+   */
+  listInstances({ userId }) { return this.sdk._fetch(`/users/${userId}/instances`, 'GET'); }
+
+  /**
+   * Grant a user access (SSO) to an instance/cluster (owner/admin only).
+   * Enforces the cluster seat limit when adding a genuinely new link.
+   *
+   * @param {object} params
+   * @param {string}  params.userId     - User ID ("usr_...").
+   * @param {string}  params.instanceId - Instance ID ("ins_...").
+   * @param {string} [params.role]      - Cluster role: 'admin' | 'member' (default 'member').
+   * @returns {Promise<{ link: object }>}
+   *
+   * @example
+   * await sdk.users.linkInstance({ userId: 'usr_bob', instanceId: 'ins_abc', role: 'member' });
+   */
+  linkInstance({ userId, instanceId, role }) { return this.sdk._fetch(`/users/${userId}/instances`, 'POST', { body: { instanceId, role } }); }
+
+  /**
+   * Change a user's role within an instance/cluster (owner/admin only).
+   *
+   * @param {object} params
+   * @param {string} params.userId     - User ID ("usr_...").
+   * @param {string} params.instanceId - Instance ID ("ins_...").
+   * @param {string} params.role       - Cluster role: 'admin' | 'member'.
+   * @returns {Promise<{ link: object }>}
+   *
+   * @example
+   * await sdk.users.setInstanceRole({ userId: 'usr_bob', instanceId: 'ins_abc', role: 'admin' });
+   */
+  setInstanceRole({ userId, instanceId, role }) { return this.sdk._fetch(`/users/${userId}/instances/${instanceId}`, 'PATCH', { body: { role } }); }
+
+  /**
+   * Revoke a user's access to an instance/cluster (owner/admin only).
+   *
+   * @param {object} params
+   * @param {string} params.userId     - User ID ("usr_...").
+   * @param {string} params.instanceId - Instance ID ("ins_...").
+   * @returns {Promise<{ ok: true }>}
+   *
+   * @example
+   * await sdk.users.unlinkInstance({ userId: 'usr_bob', instanceId: 'ins_abc' });
+   */
+  unlinkInstance({ userId, instanceId }) { return this.sdk._fetch(`/users/${userId}/instances/${instanceId}`, 'DELETE'); }
 }

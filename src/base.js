@@ -16,7 +16,7 @@
  *
  * @example
  * // Direct use (uncommon — prefer ZeusConsoleSDK)
- * import { BaseSDK } from 'zeus-sdk';
+ * import { BaseSDK } from '@zeusk8s/sdk';
  * const client = new BaseSDK({ baseURL: 'https://console.example.com/api', token: 'ins_abc123...' });
  * const data = await client._fetch('/instances', 'GET');
  */

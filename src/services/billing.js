@@ -47,6 +47,44 @@ export class BillingService {
   getSubscription({ instanceId }) { return this.sdk._fetch(`/billing/subscriptions/${instanceId}`, 'GET'); }
 
   /**
+   * List all available plans with default-version pricing.
+   * Used to display the plan picker when a user wants to change their instance plan.
+   *
+   * @returns {Promise<{ plans: Array<{
+   *   id: string,
+   *   name: string,
+   *   vcpuIncluded: number,
+   *   clusterLimit: number | null,
+   *   seatLimit: number | null,
+   *   trialDays: number,
+   *   monthlyPriceCents: number,
+   *   annualPriceCents: number | null,
+   *   vcpuOverageRateCents: number,
+   * }> }>}
+   */
+  listPlans() { return this.sdk._fetch('/billing/plans', 'GET'); }
+
+  /**
+   * Change the plan for an instance.
+   * Upgrades take effect immediately with Stripe proration (difference charged at once).
+   * Downgrades are scheduled to take effect at the end of the current billing period.
+   *
+   * @param {object} params
+   * @param {string} params.instanceId - Instance ID ("ins_...").
+   * @param {string} params.planId     - Target plan ID ("pln_...").
+   * @returns {Promise<{
+   *   type: 'upgraded' | 'downgraded',
+   *   effectiveAt: string,  // ISO date — now for upgrades, period-end for downgrades
+   *   message: string,
+   * }>}
+   *
+   * @example
+   * const result = await sdk.billing.changePlan({ instanceId: 'ins_abc', planId: 'pln_growth' });
+   * console.log(result.type, result.message);
+   */
+  changePlan({ instanceId, planId }) { return this.sdk._fetch('/billing/plans/change', 'POST', { body: { instanceId, planId } }); }
+
+  /**
    * Create a Stripe Checkout session to subscribe or upgrade a plan.
    * Redirect the user to the returned `url` to complete payment.
    * After payment, Stripe redirects back and the subscription becomes active.
@@ -79,6 +117,27 @@ export class BillingService {
    * window.location.href = url;
    */
   getPortalUrl() { return this.sdk._fetch('/billing/portal', 'POST', { body: {} }); }
+
+  /**
+   * Create a SetupIntent to add a card via Stripe Elements. Returns the client secret.
+   * @returns {Promise<{ clientSecret: string }>}
+   */
+  createSetupIntent() { return this.sdk._fetch('/billing/payment-methods/setup-intent', 'POST', { body: {} }); }
+
+  /**
+   * List the org's saved cards (account-level payment methods).
+   * @returns {Promise<{ paymentMethods: Array<{ id: string, brand: string, last4: string, expMonth: number, expYear: number, isDefault: boolean }> }>}
+   */
+  listPaymentMethods() { return this.sdk._fetch('/billing/payment-methods', 'GET'); }
+
+  /** Set an account card as the default. @param {{id:string}} p */
+  setDefaultPaymentMethod({ id }) { return this.sdk._fetch(`/billing/payment-methods/${id}/default`, 'POST', { body: {} }); }
+
+  /** Remove (detach) an account card. @param {{id:string}} p */
+  deletePaymentMethod({ id }) { return this.sdk._fetch(`/billing/payment-methods/${id}`, 'DELETE'); }
+
+  /** Link an account card to an instance's subscription. @param {{paymentMethodId:string, instanceId:string}} p */
+  linkPaymentMethod({ paymentMethodId, instanceId }) { return this.sdk._fetch('/billing/payment-methods/link', 'POST', { body: { paymentMethodId, instanceId } }); }
 
   /**
    * List all invoices for an instance, newest first.
