@@ -60,6 +60,7 @@
  *   sdk.audit       — submit and query audit log events
  *   sdk.notices     — system notices and dismissals
  *   sdk.sso         — instance-initiated SSO nonce validation
+ *   sdk.email       — proxy transactional email through the console (instance-to-console)
  *
  * Admin and platform-operations surfaces (org management, plans, spam config,
  * SMTP, instance enable/disable) live in the separate zeus-sdk-internal package,
@@ -76,6 +77,10 @@ import { SupportService } from './services/support.js';
 import { AuditService } from './services/audit.js';
 import { NoticesService } from './services/notices.js';
 import { SsoService } from './services/sso.js';
+import { EmailService } from './services/email.js';
+import { CorsService } from './services/cors.js';
+import { PermissionsService } from './services/permissions.js';
+import { ConsoleTokensService } from './services/consoletokens.js';
 
 export { generateId, ENTITY } from './generateId.js';
 export { BaseSDK } from './base.js';
@@ -101,5 +106,9 @@ export class ZeusConsoleSDK extends BaseSDK {
     this.audit = new AuditService(this);
     this.notices = new NoticesService(this);
     this.sso = new SsoService(this);
+    this.email = new EmailService(this);
+    this.cors = new CorsService(this);
+    this.permissions = new PermissionsService(this);
+    this.consoleTokens = new ConsoleTokensService(this);
   }
 }

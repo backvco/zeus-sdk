@@ -76,6 +76,14 @@ export const ENTITY = {
   // Email
   SMTP_CONFIG:          'smt',   // Outbound SMTP configuration
   EMAIL_LOG:            'eml',   // Sent email record
+
+  // CORS
+  CORS_GROUP:           'cgrp',  // Org-level CORS origin group
+
+  // Permissions
+  PERMISSION_POLICY:    'pol',   // Named permission policy document
+  PERMISSION_ROLE:      'prole', // User-defined permission role (bag of policies)
+  CONSOLE_API_TOKEN:    'ctk',   // Console service API token
 };
 
 /**

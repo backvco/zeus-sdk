@@ -44,7 +44,7 @@ export class InstancesService {
    * // Store instance.licenseKey in your deployment secrets
    * console.log('License key:', instance.licenseKey);
    */
-  register({ name, subdomain, planId }) { return this.sdk._fetch('/instances', 'POST', { body: { name, subdomain, planId } }); }
+  register({ name, subdomain, planId, port }) { return this.sdk._fetch('/instances', 'POST', { body: { name, subdomain, planId, port } }); }
 
   /**
    * List all instances belonging to the current organisation.
@@ -108,7 +108,7 @@ export class InstancesService {
    * @example
    * await sdk.instances.update({ id: 'ins_abc123', name: 'Production EU' });
    */
-  update({ id, name }) { return this.sdk._fetch(`/instances/${id}`, 'PATCH', { body: { name } }); }
+  update({ id, name, port }) { return this.sdk._fetch(`/instances/${id}`, 'PATCH', { body: { name, port } }); }
 
   /**
    * Delete (deregister) an instance. Does not affect the running deployment —

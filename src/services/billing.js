@@ -47,6 +47,44 @@ export class BillingService {
   getSubscription({ instanceId }) { return this.sdk._fetch(`/billing/subscriptions/${instanceId}`, 'GET'); }
 
   /**
+   * List all available plans with default-version pricing.
+   * Used to display the plan picker when a user wants to change their instance plan.
+   *
+   * @returns {Promise<{ plans: Array<{
+   *   id: string,
+   *   name: string,
+   *   vcpuIncluded: number,
+   *   clusterLimit: number | null,
+   *   seatLimit: number | null,
+   *   trialDays: number,
+   *   monthlyPriceCents: number,
+   *   annualPriceCents: number | null,
+   *   vcpuOverageRateCents: number,
+   * }> }>}
+   */
+  listPlans() { return this.sdk._fetch('/billing/plans', 'GET'); }
+
+  /**
+   * Change the plan for an instance.
+   * Upgrades take effect immediately with Stripe proration (difference charged at once).
+   * Downgrades are scheduled to take effect at the end of the current billing period.
+   *
+   * @param {object} params
+   * @param {string} params.instanceId - Instance ID ("ins_...").
+   * @param {string} params.planId     - Target plan ID ("pln_...").
+   * @returns {Promise<{
+   *   type: 'upgraded' | 'downgraded',
+   *   effectiveAt: string,  // ISO date — now for upgrades, period-end for downgrades
+   *   message: string,
+   * }>}
+   *
+   * @example
+   * const result = await sdk.billing.changePlan({ instanceId: 'ins_abc', planId: 'pln_growth' });
+   * console.log(result.type, result.message);
+   */
+  changePlan({ instanceId, planId }) { return this.sdk._fetch('/billing/plans/change', 'POST', { body: { instanceId, planId } }); }
+
+  /**
    * Create a Stripe Checkout session to subscribe or upgrade a plan.
    * Redirect the user to the returned `url` to complete payment.
    * After payment, Stripe redirects back and the subscription becomes active.
