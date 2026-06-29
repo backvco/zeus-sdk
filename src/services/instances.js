@@ -44,7 +44,7 @@ export class InstancesService {
    * // Store instance.licenseKey in your deployment secrets
    * console.log('License key:', instance.licenseKey);
    */
-  register({ name, subdomain, planId }) { return this.sdk._fetch('/instances', 'POST', { body: { name, subdomain, planId } }); }
+  register({ name, subdomain, planId, port }) { return this.sdk._fetch('/instances', 'POST', { body: { name, subdomain, planId, port } }); }
 
   /**
    * List all instances belonging to the current organisation.
@@ -108,7 +108,7 @@ export class InstancesService {
    * @example
    * await sdk.instances.update({ id: 'ins_abc123', name: 'Production EU' });
    */
-  update({ id, name }) { return this.sdk._fetch(`/instances/${id}`, 'PATCH', { body: { name } }); }
+  update({ id, name, port }) { return this.sdk._fetch(`/instances/${id}`, 'PATCH', { body: { name, port } }); }
 
   /**
    * Delete (deregister) an instance. Does not affect the running deployment —
@@ -220,4 +220,17 @@ export class InstancesService {
    * await sdk.instances.pushKeypair({ id: 'ins_abc123', publicKey });
    */
   pushKeypair({ id, publicKey }) { return this.sdk._fetch(`/instances/${id}/keypair`, 'POST', { body: { publicKey } }); }
+
+  /**
+   * List the users with access (SSO) to this instance/cluster, plus seat usage.
+   * Each live member counts toward the cluster's seat limit (null = unlimited).
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ members: Array<object>, seatUsed: number, seatLimit: number|null }>}
+   *
+   * @example
+   * const { members, seatUsed, seatLimit } = await sdk.instances.listMembers({ id: 'ins_abc123' });
+   */
+  listMembers({ id }) { return this.sdk._fetch(`/instances/${id}/members`, 'GET'); }
 }
