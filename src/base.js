@@ -125,8 +125,9 @@ export class BaseSDK {
    */
   async _fetch(endpoint, method, { body, query, headers = {} } = {}) {
     let url = `${this.baseURL}${endpoint}`;
-    if (query && Object.keys(query).length) {
-      url += `?${new URLSearchParams(query).toString()}`;
+    if (query) {
+      const filtered = Object.fromEntries(Object.entries(query).filter(([, v]) => v != null));
+      if (Object.keys(filtered).length) url += `?${new URLSearchParams(filtered).toString()}`;
     }
 
     const h = { ...headers };
@@ -161,5 +162,33 @@ export class BaseSDK {
       throw err;
     }
     return parse();
+  }
+
+  /**
+   * Subscribe to a server-sent event channel. Returns an unsubscribe function.
+   * Browser only — uses EventSource with credentials.
+   *
+   * @param {string}   channel  - Channel name, e.g. "forum:post:fpo_xxx"
+   * @param {Function} handler  - Called with (eventType: string, data: any)
+   * @returns {() => void} Call to close the connection.
+   *
+   * @example
+   * const unsub = sdk.subscribe('forum:post:fpo_abc', (type, data) => {
+   *   if (type === 'answer.new') setAnswers(prev => [...prev, data]);
+   * });
+   * // later:
+   * unsub();
+   */
+  subscribe(channel, handler) {
+    const url = `${this.baseURL}/events?channel=${encodeURIComponent(channel)}`;
+    const es = new EventSource(url, { withCredentials: true });
+    const wrap = (type) => (e) => {
+      try { handler(type, JSON.parse(e.data)); } catch { /* ignore bad JSON */ }
+    };
+    for (const type of ['answer.new', 'answer.updated', 'answer.deleted', 'answer.accepted', 'forum.answer.new']) {
+      es.addEventListener(type, wrap(type));
+    }
+    es.onerror = () => {}; // suppress console noise on disconnect
+    return () => es.close();
   }
 }
