@@ -49,15 +49,16 @@ export class UsersService {
    * All fields are optional — only provided fields are changed.
    *
    * @param {object} params
-   * @param {string} [params.timeFormat]  - "12h" or "24h".
-   * @param {string} [params.dateFormat]  - Date format string, e.g. "MM/DD/YYYY".
-   * @param {string} [params.locale]      - BCP 47 locale tag, e.g. "en-US", "de-DE".
-   * @returns {Promise<{ id: string, preferences: object }>}
+   * @param {string}  [params.timeFormat]        - "12h" or "24h".
+   * @param {string}  [params.dateFormat]        - Date format string, e.g. "MM/DD/YYYY".
+   * @param {string}  [params.locale]            - BCP 47 locale tag, e.g. "en-US", "de-DE".
+   * @param {boolean} [params.welcomeDismissed]  - true once the user has dismissed the welcome modal.
+   * @returns {Promise<{ timeFormat: string, dateFormat: string, locale: string, welcomeDismissed: boolean }>}
    *
    * @example
    * await sdk.users.updatePreferences({ timeFormat: '24h', locale: 'en-GB' });
    */
-  updatePreferences({ timeFormat, dateFormat, locale }) { return this.sdk._fetch('/users/me/preferences', 'PATCH', { body: { timeFormat, dateFormat, locale } }); }
+  updatePreferences({ timeFormat, dateFormat, locale, welcomeDismissed }) { return this.sdk._fetch('/users/me/preferences', 'PATCH', { body: { timeFormat, dateFormat, locale, welcomeDismissed } }); }
 
   /**
    * List all users in the current organisation.

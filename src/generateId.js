@@ -77,6 +77,10 @@ export const ENTITY = {
   SMTP_CONFIG:          'smt',   // Outbound SMTP configuration
   EMAIL_LOG:            'eml',   // Sent email record
 
+  // Help content
+  HELP_DOC:             'hdoc',  // Help documentation entry
+  HELP_CHANGE_REQUEST:  'hcr',   // User-submitted doc change request
+
   // CORS
   CORS_GROUP:           'cgrp',  // Org-level CORS origin group
 
@@ -84,6 +88,13 @@ export const ENTITY = {
   PERMISSION_POLICY:    'pol',   // Named permission policy document
   PERMISSION_ROLE:      'prole', // User-defined permission role (bag of policies)
   CONSOLE_API_TOKEN:    'ctk',   // Console service API token
+
+  // Forum
+  FORUM_CATEGORY:       'fct',   // Forum category
+  FORUM_POST:           'fpo',   // Forum question/post
+  FORUM_ANSWER:         'fan',   // Answer to a forum post
+  FORUM_VOTE:           'fvt',   // Vote on a post or answer
+  FORUM_SUBSCRIPTION:   'fsub',  // User following a forum post for email alerts
 };
 
 /**

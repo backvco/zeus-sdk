@@ -1,6 +1,6 @@
 {
   "name": "@zeusk8s/sdk",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Official JavaScript client for the Zeus Console API — account management, billing, licensing, instances, orgs, users, support and audit. Browser (session-cookie) and Node (license key).",
   "type": "module",
   "main": "src/index.js",

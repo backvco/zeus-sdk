@@ -81,6 +81,8 @@ import { EmailService } from './services/email.js';
 import { CorsService } from './services/cors.js';
 import { PermissionsService } from './services/permissions.js';
 import { ConsoleTokensService } from './services/consoletokens.js';
+import { HelpService } from './services/help.js';
+import { ForumService } from './services/forum.js';
 
 export { generateId, ENTITY } from './generateId.js';
 export { BaseSDK } from './base.js';
@@ -110,5 +112,7 @@ export class ZeusConsoleSDK extends BaseSDK {
     this.cors = new CorsService(this);
     this.permissions = new PermissionsService(this);
     this.consoleTokens = new ConsoleTokensService(this);
+    this.help = new HelpService(this);
+    this.forum = new ForumService(this);
   }
 }
