@@ -41,6 +41,7 @@ export const ENTITY = {
   // Instances
   INSTANCE:             'ins',   // A deployed Zeus instance
   INSTANCE_KEYPAIR:     'kpr',   // RSA keypair for instance↔console trust
+  INSTANCE_MEMBER:      'ism',   // Join table: instance ↔ user (per-instance access grant)
 
   // Billing
   PLAN:                 'pln',   // Subscription plan (e.g. "Starter", "Pro")
