@@ -125,27 +125,33 @@ export class AuthService {
   getSession() { return this.sdk._fetch('/auth/session', 'GET'); }
 
   /**
-   * Verify the user's email address with the 6-digit code sent after signup.
+   * Verify an email address with the 6-digit code from the verification email.
+   * When called without a session (e.g. the public /verify-email page), pass
+   * `email` so the API can locate the account; with a session it's optional.
    *
    * @param {object} params
-   * @param {string} params.code - 6-digit verification code from the email.
+   * @param {string} params.code    - 6-digit verification code from the email.
+   * @param {string} [params.email] - Account email (required when unauthenticated).
    * @returns {Promise<{ ok: true }>}
    *
    * @example
-   * await sdk.auth.verifyEmail({ code: '847291' });
+   * await sdk.auth.verifyEmail({ email: 'alice@example.com', code: '847291' });
    */
-  verifyEmail({ code }) { return this.sdk._fetch('/auth/verify-email', 'POST', { body: { code } }); }
+  verifyEmail({ code, email }) { return this.sdk._fetch('/auth/verify-email', 'POST', { body: { code, email } }); }
 
   /**
-   * Resend the email verification code to the current user's address.
-   * Rate-limited — call only in response to a user "Resend" action.
+   * Resend the email verification code. Uses the current session's address, or
+   * pass `email` when unauthenticated. Rate-limited — call only in response to
+   * a user "Resend" action.
    *
+   * @param {object} [params]
+   * @param {string} [params.email] - Account email (required when unauthenticated).
    * @returns {Promise<{ ok: true }>}
    *
    * @example
    * await sdk.auth.resendVerification();
    */
-  resendVerification() { return this.sdk._fetch('/auth/verify-email/resend', 'POST', { body: {} }); }
+  resendVerification({ email } = {}) { return this.sdk._fetch('/auth/verify-email/resend', 'POST', { body: { email } }); }
 
   /**
    * Send a password-reset email. The email contains a single-use token link.
