@@ -74,4 +74,20 @@ export class EmailService {
   requestVerification({ email }) {
     return this.sdk._fetch('/email/verification/request', 'POST', { body: { email } });
   }
+
+  /**
+   * Read-only check: is this address verified at the console? Org-scoped;
+   * lets an instance clear its "unverified" warning as soon as the user
+   * verifies on the console UI. Instance (license-key) auth only.
+   *
+   * @param {object} params
+   * @param {string} params.email - The user's email address.
+   * @returns {Promise<{ exists: boolean, verified: boolean }>}
+   *
+   * @example
+   * const { verified } = await sdk.email.verificationStatus({ email: 'cameron@backv.co' });
+   */
+  verificationStatus({ email }) {
+    return this.sdk._fetch('/email/verification/status', 'GET', { query: { email } });
+  }
 }
