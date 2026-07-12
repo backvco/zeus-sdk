@@ -153,6 +153,23 @@ export class UsersService {
   updateRole({ userId, role }) { return this.sdk._fetch(`/users/${userId}/role`, 'PATCH', { body: { role } }); }
 
   /**
+   * Opt a user in/out of broadcast alert email (default in). The preference
+   * propagates to Zeus instances via SSO, so instance alert mail honors it.
+   * Users can set their own; owners/admins can set anyone's (e.g. silence a
+   * shared test account whose mailbox nobody reads). Delivery preference only
+   * — separate from email verification.
+   *
+   * @param {object} params
+   * @param {string} params.userId    - Target user ID ("usr_...").
+   * @param {boolean} params.enabled  - Receive broadcast alert email.
+   * @returns {Promise<{ ok: true, alertEmails: boolean }>}
+   *
+   * @example
+   * await sdk.users.setAlertEmails({ userId: 'usr_bob', enabled: false });
+   */
+  setAlertEmails({ userId, enabled }) { return this.sdk._fetch(`/users/${userId}/alert-emails`, 'PATCH', { body: { enabled } }); }
+
+  /**
    * Remove a user from the organisation. The user's account is not deleted —
    * they lose access to this org but can still log in if invited elsewhere.
    * You cannot remove yourself.

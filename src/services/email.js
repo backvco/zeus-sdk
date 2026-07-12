@@ -36,4 +36,58 @@ export class EmailService {
   send({ to, subject, html, text, event }) {
     return this.sdk._fetch('/email/send', 'POST', { body: { to, subject, html, text, event } });
   }
+
+  /**
+   * Report an alert-class email; the CONSOLE resolves the recipients (verified,
+   * opted-in admins of the calling instance — future: per-user subscriptions).
+   * The instance never names recipients for alerts. Instance (license-key)
+   * auth only.
+   *
+   * @param {object} params
+   * @param {string} params.alertType  - Stable alert/event key, e.g. 'alert.cluster_unhealthy'.
+   * @param {string} [params.severity] - 'critical' | 'warning' | ... (audit metadata).
+   * @param {string} params.subject    - Email subject line.
+   * @param {string} params.html       - Rendered HTML body.
+   * @param {string} [params.text]     - Plain-text fallback body.
+   * @returns {Promise<{ sent: boolean, reason?: string, recipients: number, skipped: Array<{email: string, reason: string}> }>}
+   *
+   * @example
+   * await sdk.email.sendAlert({ alertType: 'alert.cluster_unhealthy', severity: 'critical', subject, html, text });
+   */
+  sendAlert({ alertType, severity, subject, html, text }) {
+    return this.sdk._fetch('/email/alert', 'POST', { body: { alertType, severity, subject, html, text } });
+  }
+
+  /**
+   * Ask the console to send its email-verification message to a console user
+   * of the instance's org (the emailed link/code lands on the console UI).
+   * Instance (license-key) auth only. 404 if no console user in the org has
+   * that email.
+   *
+   * @param {object} params
+   * @param {string} params.email - The user's email address.
+   * @returns {Promise<{ ok: true, sent?: boolean, alreadyVerified?: boolean }>}
+   *
+   * @example
+   * await sdk.email.requestVerification({ email: 'cameron@backv.co' });
+   */
+  requestVerification({ email }) {
+    return this.sdk._fetch('/email/verification/request', 'POST', { body: { email } });
+  }
+
+  /**
+   * Read-only check: is this address verified at the console? Org-scoped;
+   * lets an instance clear its "unverified" warning as soon as the user
+   * verifies on the console UI. Instance (license-key) auth only.
+   *
+   * @param {object} params
+   * @param {string} params.email - The user's email address.
+   * @returns {Promise<{ exists: boolean, verified: boolean }>}
+   *
+   * @example
+   * const { verified } = await sdk.email.verificationStatus({ email: 'cameron@backv.co' });
+   */
+  verificationStatus({ email }) {
+    return this.sdk._fetch('/email/verification/status', 'GET', { query: { email } });
+  }
 }
