@@ -146,12 +146,17 @@ export class AuthService {
    * @param {object} params
    * @param {string} params.code    - 6-digit verification code from the email.
    * @param {string} [params.email] - Account email (required when unauthenticated).
-   * @returns {Promise<{ ok: true }>}
+   * @param {string} [params.linkToken] - Single-use token from the emailed link's `lt`
+   *   param. When valid, the response also starts a session (sets the cookie) and
+   *   includes `user`/`org` (+ `card_verification_required` when signup setup is
+   *   unfinished) so the caller can resume the signup wizard. The typed code alone
+   *   never starts a session.
+   * @returns {Promise<{ ok: true, user?: object, org?: object, card_verification_required?: true }>}
    *
    * @example
    * await sdk.auth.verifyEmail({ email: 'alice@example.com', code: '847291' });
    */
-  verifyEmail({ code, email }) { return this.sdk._fetch('/auth/verify-email', 'POST', { body: { code, email } }); }
+  verifyEmail({ code, email, linkToken }) { return this.sdk._fetch('/auth/verify-email', 'POST', { body: { code, email, linkToken } }); }
 
   /**
    * Resend the email verification code. Uses the current session's address, or
