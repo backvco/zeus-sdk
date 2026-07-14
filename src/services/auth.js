@@ -32,12 +32,20 @@ export class AuthService {
    * Create a new user account and organisation.
    * Sends a verification email — the user must call verifyEmail() before logging in.
    *
+   * Statuses:
+   *   'created'        — account created, verification code emailed.
+   *   'resumed'        — an unfinished signup (email never verified) already existed for
+   *                      this address; its credentials were replaced with this attempt's
+   *                      and a fresh code was emailed. Continue exactly like 'created'.
+   *   'pending_review' — registration held for manual review (no account yet).
+   * A VERIFIED account with this email is a hard conflict — throws HTTP 409.
+   *
    * @param {object} body
    * @param {string} body.email
    * @param {string} body.password     - Min 8 characters.
    * @param {string} [body.name]       - Display name.
-   * @param {string} [body.orgName]    - Organisation name (defaults to email domain).
-   * @returns {Promise<{ userId: string, orgId: string }>}
+   * @param {string} [body.referralCode] - Referral code from a ?ref= signup link.
+   * @returns {Promise<{ status: 'created' | 'resumed' | 'pending_review' }>}
    *
    * @example
    * const { userId, orgId } = await sdk.auth.signup({
