@@ -99,6 +99,10 @@ export const ENTITY = {
   FORUM_ANSWER:         'fan',   // Answer to a forum post
   FORUM_VOTE:           'fvt',   // Vote on a post or answer
   FORUM_SUBSCRIPTION:   'fsub',  // User following a forum post for email alerts
+
+  // Legal
+  LEGAL_DOCUMENT:       'ldc',   // A versioned legal document (MSA, Abuse Policy, Privacy Policy)
+  LEGAL_ACCEPTANCE:     'lac',   // Record of a user accepting a legal document
 };
 
 /**

@@ -13,7 +13,11 @@
  *   2. heartbeat()      — called periodically from within the running Zeus instance
  *   3. pushKeypair()    — register the instance's RSA public key for trust
  *   4. getSsoRedirect() — generate a login URL for SSO from the console to the instance
- *   5. delete()         — decommission when the instance is torn down
+ *   5. resumePreview()/resume()/resumeConfirm() — customer re-enables their own instance
+ *                         after a suspension (e.g. following an admin enableOrg()) and
+ *                         resumes billing; resumeConfirm() finishes a 3DS-challenged
+ *                         resume (invoice-based, distinct from confirmPayment()'s hold)
+ *   6. delete()         — decommission when the instance is torn down
  */
 export class InstancesService {
   constructor(sdk) { this.sdk = sdk; }
@@ -505,6 +509,159 @@ export class InstancesService {
    * await sdk.instances.retryProvision({ id: 'ins_abc123' });
    */
   retryProvision({ id }) { return this.sdk._fetch(`/instances/${id}/retry-provision`, 'POST', { body: {} }); }
+
+  /**
+   * Preview the exact billing consequence of resuming a suspended instance — call this
+   * BEFORE `resume()` and show the customer the amount and the card that will be
+   * charged. Read-only: never mutates anything in Stripe. This project's rule is that
+   * a card charge is never a surprise — resuming a monthly instance mid-period can
+   * charge a prorated fee for the remainder of the current term, and the customer must
+   * see that figure and the payment method up front.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{
+   *   resumable: boolean,
+   *   purchaseRequired: boolean,   // annual subscription whose paid term lapsed while
+   *                                 // suspended — resume() will 402; the customer must
+   *                                 // purchase again instead.
+   *   requiresPayment: boolean,    // true for a monthly instance resumed mid-period;
+   *                                 // false for an annual instance still within its
+   *                                 // already-paid term (resumes at no charge).
+   *   amountDueCents: number,      // Stripe's figure for the partial period; 0 when
+   *                                 // nothing is owed.
+   *   currency: string,
+   *   coverageStart: string,       // start of the partial window being charged for
+   *   coverageEnd: string,         // end of that window, e.g. resuming Jun 20 on a
+   *                                 // monthly plan covers Jun 20 -> Jun 30.
+   *   nextInvoiceDate: string,     // when normal recurring billing resumes, e.g. Jul 1
+   *   nextAmountCents: number,
+   *   paymentMethod: { id: string, brand: string, last4: string, nickname: string | null } | null,
+   * }>}
+   *
+   * @example
+   * const preview = await sdk.instances.resumePreview({ id: 'ins_abc123' });
+   * if (preview.purchaseRequired) {
+   *   // Route to purchase-again flow, not resume().
+   * } else if (preview.requiresPayment) {
+   *   // Show `${preview.amountDueCents / 100}` charged to preview.paymentMethod, then resume().
+   * } else {
+   *   await sdk.instances.resume({ id: 'ins_abc123' });
+   * }
+   */
+  resumePreview({ id }) { return this.sdk._fetch(`/instances/${id}/resume-preview`, 'GET'); }
+
+  /**
+   * Resume a suspended instance. Typically called by the customer after a Zeus admin
+   * has re-enabled their org (see `sdk.internal.admin.enableOrg`) — an org enable does
+   * NOT automatically resume instances, so the customer takes this action explicitly.
+   *
+   * Call `resumePreview()` first and show the customer the amount/card before calling
+   * this — never charge a card as a surprise.
+   *
+   * Re-enables the instance, restarts its cloud container, and resumes billing:
+   *   - Monthly subscription — un-pauses and resumes normal recurring billing. If
+   *     resumed mid-period, this charges a prorated fee for the remainder of the
+   *     current term (see `resumePreview().amountDueCents`) using `paymentMethodId`
+   *     (or the org's default card if omitted).
+   *   - Annual subscription still within its paid term — resumes at no charge for the
+   *     remainder of the term.
+   *   - Annual subscription whose paid term lapsed while suspended — rejects with HTTP
+   *     402 and body `{ error: 'purchase_required' }`; the customer must purchase again
+   *     (there is no partial-term proration path here, unlike `register()`'s payment
+   *     flow).
+   *
+   * The instance is only re-enabled after payment actually succeeds. Like
+   * `register()`, a charge may require 3D Secure / SCA — in that case this REJECTS
+   * with `err.status === 402` and `err.body === { requiresAction: true, clientSecret,
+   * invoiceId }` and does NOT re-enable the instance yet.
+   *
+   * IMPORTANT: this is a DIFFERENT continuation than the purchase flow. Resume collects
+   * money via a Stripe INVOICE, not a payment-intent hold — there is no `holdId` here.
+   * Do NOT call `confirmPayment({ holdId })` for a resume challenge; it will not work.
+   * Drive the cardholder through `stripe.handleNextAction({ clientSecret })`, then call
+   * `resumeConfirm({ id, invoiceId })` to finish resuming once the challenge succeeds.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @param {string} [params.paymentMethodId] - Use this specific saved card ("pm_...")
+   *   for the prorated charge instead of the org's Stripe default/first card. Ignored
+   *   when `resumePreview().requiresPayment` is false.
+   * @returns {Promise<{ ok: true }>}
+   *   On a lapsed annual term: rejects with `err.status === 402` and
+   *   `err.body.error === 'purchase_required'`. On a charge requiring 3DS/SCA: rejects
+   *   with `err.status === 402` and `err.body === { requiresAction: true, clientSecret,
+   *   invoiceId }` — see `resumeConfirm()`. On a declined charge: rejects with
+   *   `err.status === 402` and `err.body.paymentFailed === true`.
+   *
+   * @example
+   * const preview = await sdk.instances.resumePreview({ id: 'ins_abc123' });
+   * if (preview.purchaseRequired) {
+   *   // route the customer to purchase again
+   * } else {
+   *   try {
+   *     await sdk.instances.resume({ id: 'ins_abc123' });
+   *   } catch (err) {
+   *     if (err.body?.requiresAction) {
+   *       await stripe.handleNextAction({ clientSecret: err.body.clientSecret });
+   *       await sdk.instances.resumeConfirm({ id: 'ins_abc123', invoiceId: err.body.invoiceId });
+   *     } else {
+   *       throw err;
+   *     }
+   *   }
+   * }
+   */
+  resume({ id, paymentMethodId }) { return this.sdk._fetch(`/instances/${id}/resume`, 'POST', { body: { paymentMethodId } }); }
+
+  /**
+   * Finish resuming an instance after `resume()` rejected with
+   * `{ requiresAction: true, clientSecret, invoiceId }` and the cardholder has
+   * completed the 3D Secure / SCA challenge (`stripe.handleNextAction({ clientSecret })`
+   * client-side).
+   *
+   * This is the resume flow's OWN confirm step — resume collects money via a Stripe
+   * INVOICE, not the payment-intent hold used by `register()`/`confirmPayment({
+   * holdId })`. Do not mix the two: calling `confirmPayment({ holdId })` for a resume
+   * challenge is wrong (there is no hold) and would leave the customer charged but
+   * still suspended.
+   *
+   * Re-reads the invoice from Stripe itself (never trusts the client's word that
+   * payment succeeded) and:
+   *   - Invoice paid — the instance is enabled and its container started, ONLY at this
+   *     point. Resolves `{ instance, billing: { charged: true, amountChargedCents,
+   *     invoiceId } }`.
+   *   - Still mid-challenge — nothing has changed yet. Resolves with the same
+   *     `{ requiresAction: true, clientSecret, invoiceId }` shape again (safe to poll).
+   *   - Payment genuinely failed — the subscription is put back to its paused state and
+   *     the instance stays suspended (no free service). Rejects with
+   *     `err.status === 402` and `err.body === { error, paymentFailed: true,
+   *     declineCode?, errorCode? }`.
+   *
+   * Idempotent — safe to call more than once (e.g. the customer refreshed mid-challenge).
+   *
+   * @param {object} params
+   * @param {string} params.id        - Instance ID ("ins_...").
+   * @param {string} params.invoiceId - The Stripe invoice ID from `resume()`'s
+   *   `requiresAction` response ("in_...").
+   * @returns {Promise<
+   *   { instance: object, billing: { charged: true, amountChargedCents: number, invoiceId: string } }
+   *   | { requiresAction: true, clientSecret: string, invoiceId: string }
+   * >}
+   *
+   * @example
+   * try {
+   *   await sdk.instances.resume({ id: 'ins_abc123' });
+   * } catch (err) {
+   *   if (err.body?.requiresAction) {
+   *     await stripe.handleNextAction({ clientSecret: err.body.clientSecret });
+   *     const result = await sdk.instances.resumeConfirm({ id: 'ins_abc123', invoiceId: err.body.invoiceId });
+   *     if (result.requiresAction) {
+   *       // challenge still not complete; re-prompt or poll
+   *     }
+   *   }
+   * }
+   */
+  resumeConfirm({ id, invoiceId }) { return this.sdk._fetch(`/instances/${id}/resume-confirm`, 'POST', { body: { invoiceId } }); }
 
   /**
    * Check whether a subdomain slug is available for a new instance. Subdomains are

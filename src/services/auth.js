@@ -48,6 +48,9 @@ export class AuthService {
    *                                     email domain when omitted). On a 'resumed'
    *                                     signup it also renames the existing org.
    * @param {string} [body.referralCode] - Referral code from a ?ref= signup link.
+   * @param {boolean} body.acceptLegal - Must be `true` — clickwrap acceptance of the
+   *   current MSA, Abuse Policy, and Privacy Policy (see sdk.legal.getDocuments()).
+   *   Throws HTTP 400 if omitted or false.
    * @returns {Promise<{ status: 'created' | 'resumed' | 'pending_review' }>}
    *
    * @example
@@ -56,6 +59,7 @@ export class AuthService {
    *   password: 'hunter2!',
    *   name: 'Alice',
    *   orgName: 'Acme Corp',
+   *   acceptLegal: true,
    * });
    */
   signup(body) { return this.sdk._fetch('/auth/signup', 'POST', { body }); }
@@ -91,6 +95,10 @@ export class AuthService {
    *
    * @param {object} params
    * @param {string} params.idToken - Firebase ID token from the client SDK.
+   * @param {boolean} [params.acceptLegal] - Pass `true` when the caller has shown and the user
+   *   has checked the legal-docs acceptance box. Only required when the Google account is NEW —
+   *   without it, the API rejects a new-account attempt with an error whose message is exactly
+   *   `legal_acceptance_required` so the caller can show the checkbox and retry.
    * @returns {Promise<{ userId: string, orgId: string, role: string, isNew: boolean }>}
    *   `isNew: true` means the account was just created via social login.
    *
@@ -100,7 +108,7 @@ export class AuthService {
    * const idToken = await user.getIdToken();
    * const session = await sdk.auth.loginFirebase({ idToken });
    */
-  loginFirebase({ idToken }) { return this.sdk._fetch('/auth/login/firebase', 'POST', { body: { idToken } }); }
+  loginFirebase({ idToken, acceptLegal }) { return this.sdk._fetch('/auth/login/firebase', 'POST', { body: { idToken, acceptLegal } }); }
 
   /**
    * Log out the current user. Clears the session cookie.
