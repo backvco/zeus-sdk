@@ -44,6 +44,9 @@ export class AuthService {
    * @param {string} body.email
    * @param {string} body.password     - Min 8 characters.
    * @param {string} [body.name]       - Display name.
+   * @param {string} [body.orgName]    - Company/organisation name (falls back to the
+   *                                     email domain when omitted). On a 'resumed'
+   *                                     signup it also renames the existing org.
    * @param {string} [body.referralCode] - Referral code from a ?ref= signup link.
    * @returns {Promise<{ status: 'created' | 'resumed' | 'pending_review' }>}
    *
