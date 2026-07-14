@@ -42,11 +42,14 @@ export const ENTITY = {
   INSTANCE:             'ins',   // A deployed Zeus instance
   INSTANCE_KEYPAIR:     'kpr',   // RSA keypair for instance↔console trust
   INSTANCE_MEMBER:      'ism',   // Join table: instance ↔ user (per-instance access grant)
+  INSTANCE_PROBE_NONCE: 'ipn',   // Single-use reachability-probe nonce issued on heartbeat
+  DB_CLUSTER:           'dbc',   // Postgres server we operate, for cloud-hosted instance provisioning
 
   // Billing
   PLAN:                 'pln',   // Subscription plan (e.g. "Starter", "Pro")
   PLAN_VERSION:         'plv',   // Immutable snapshot of a plan's pricing
   SUBSCRIPTION:         'sub',   // An org's active plan subscription
+  INSTANCE_AUTH_HOLD:   'iah',   // Manual-capture Stripe PaymentIntent hold for a pending instance purchase
   ORG_PRICING:          'opr',   // Custom per-org pricing override
   VCPU_PRICING_TIER:    'vpt',   // vCPU price tier (usage-based plans)
 

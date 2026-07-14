@@ -11,6 +11,9 @@
  *   1. signup()         — create account (sends verification email)
  *   2. verifyEmail()    — confirm the emailed code
  *   3. login()          — start a session (sets cookie)
+ *   3a. verifyCard()    — if the response has `card_verification_required: true`, place
+ *                         a $1 pre-auth to verify the card before continuing (spam gate;
+ *                         the customer is never charged)
  *   4. getSession()     — check who's logged in on any page load
  *   5. logout()         — clear the session cookie
  *
@@ -215,4 +218,50 @@ export class AuthService {
    * // session.userId, session.role, etc.
    */
   verifyMfa({ code }) { return this.sdk._fetch('/auth/mfa/verify', 'POST', { body: { code } }); }
+
+  /**
+   * Signup card verification (spam gate) — places a temporary $1 authorization on the
+   * given card to prove it's real, then releases it immediately. The customer is
+   * NEVER charged. login()/getSession()/loginFirebase() report whether this is still
+   * needed via `card_verification_required: true`.
+   *
+   * @param {object} params
+   * @param {string} params.paymentMethodId - A Stripe PaymentMethod id (create it
+   *   client-side with Stripe.js/Elements first — no raw card data touches our server).
+   * @returns {Promise<
+   *   { ok: true, alreadyVerified?: true } |
+   *   { requiresAction: true, clientSecret: string, paymentIntentId: string } |
+   *   { paymentFailed: true, declineCode: string|null, errorCode: string|null }
+   * >}
+   *   `requiresAction` means the card needs 3D Secure — complete it client-side with
+   *   Stripe.js's `handleNextAction(clientSecret)`, then call confirmCardVerification()
+   *   with the same `paymentIntentId`.
+   * @throws {Error} 503 if Stripe is not configured — the UI should skip this step.
+   *
+   * @example
+   * const result = await sdk.auth.verifyCard({ paymentMethodId: 'pm_...' });
+   * if (result.requiresAction) {
+   *   await stripe.handleNextAction({ clientSecret: result.clientSecret });
+   *   const confirmed = await sdk.auth.confirmCardVerification({ paymentIntentId: result.paymentIntentId });
+   * }
+   */
+  verifyCard({ paymentMethodId }) { return this.sdk._fetch('/auth/verify-card', 'POST', { body: { paymentMethodId } }); }
+
+  /**
+   * Re-check a card verification PaymentIntent after the cardholder completes a 3D
+   * Secure challenge (follow-up to verifyCard()'s `requiresAction` response).
+   *
+   * @param {object} params
+   * @param {string} params.paymentIntentId - The id returned by verifyCard().
+   * @returns {Promise<
+   *   { ok: true, alreadyVerified?: true } |
+   *   { requiresAction: true, clientSecret: string, paymentIntentId: string } |
+   *   { paymentFailed: true, declineCode: string|null, errorCode: string|null }
+   * >}
+   * @throws {Error} 503 if Stripe is not configured.
+   *
+   * @example
+   * const confirmed = await sdk.auth.confirmCardVerification({ paymentIntentId: 'pi_...' });
+   */
+  confirmCardVerification({ paymentIntentId }) { return this.sdk._fetch('/auth/verify-card/confirm', 'POST', { body: { paymentIntentId } }); }
 }
