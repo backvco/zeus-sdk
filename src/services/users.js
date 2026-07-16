@@ -125,6 +125,8 @@ export class UsersService {
    * @param {string} params.token    - Invite token from the email link.
    * @param {string} params.name     - The new user's display name.
    * @param {string} params.password - Password to set for the new account.
+   * @param {boolean} params.acceptLegal - Must be `true` — confirms the invitee accepted the
+   *   current MSA/Abuse Policy/Privacy Policy. The API 400s without it.
    * @returns {Promise<{ userId: string, orgId: string, role: string }>}
    *
    * @example
@@ -133,10 +135,11 @@ export class UsersService {
    *   token,
    *   name: 'Bob Smith',
    *   password: 'secure-pass-1!',
+   *   acceptLegal: true,
    * });
    * // User is now logged in; session.role tells you their role
    */
-  acceptInvite({ token, name, password }) { return this.sdk._fetch('/users/invite/accept', 'POST', { body: { token, name, password } }); }
+  acceptInvite({ token, name, password, acceptLegal }) { return this.sdk._fetch('/users/invite/accept', 'POST', { body: { token, name, password, acceptLegal } }); }
 
   /**
    * Change a user's role. You must be an admin to call this.

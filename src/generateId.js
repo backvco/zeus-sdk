@@ -42,11 +42,14 @@ export const ENTITY = {
   INSTANCE:             'ins',   // A deployed Zeus instance
   INSTANCE_KEYPAIR:     'kpr',   // RSA keypair for instance↔console trust
   INSTANCE_MEMBER:      'ism',   // Join table: instance ↔ user (per-instance access grant)
+  INSTANCE_PROBE_NONCE: 'ipn',   // Single-use reachability-probe nonce issued on heartbeat
+  DB_CLUSTER:           'dbc',   // Postgres server we operate, for cloud-hosted instance provisioning
 
   // Billing
   PLAN:                 'pln',   // Subscription plan (e.g. "Starter", "Pro")
   PLAN_VERSION:         'plv',   // Immutable snapshot of a plan's pricing
   SUBSCRIPTION:         'sub',   // An org's active plan subscription
+  INSTANCE_AUTH_HOLD:   'iah',   // Manual-capture Stripe PaymentIntent hold for a pending instance purchase
   ORG_PRICING:          'opr',   // Custom per-org pricing override
   VCPU_PRICING_TIER:    'vpt',   // vCPU price tier (usage-based plans)
 
@@ -96,6 +99,10 @@ export const ENTITY = {
   FORUM_ANSWER:         'fan',   // Answer to a forum post
   FORUM_VOTE:           'fvt',   // Vote on a post or answer
   FORUM_SUBSCRIPTION:   'fsub',  // User following a forum post for email alerts
+
+  // Legal
+  LEGAL_DOCUMENT:       'ldc',   // A versioned legal document (MSA, Abuse Policy, Privacy Policy)
+  LEGAL_ACCEPTANCE:     'lac',   // Record of a user accepting a legal document
 };
 
 /**

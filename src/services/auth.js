@@ -11,6 +11,9 @@
  *   1. signup()         — create account (sends verification email)
  *   2. verifyEmail()    — confirm the emailed code
  *   3. login()          — start a session (sets cookie)
+ *   3a. verifyCard()    — if the response has `card_verification_required: true`, place
+ *                         a $1 pre-auth to verify the card before continuing (spam gate;
+ *                         the customer is never charged)
  *   4. getSession()     — check who's logged in on any page load
  *   5. logout()         — clear the session cookie
  *
@@ -29,12 +32,26 @@ export class AuthService {
    * Create a new user account and organisation.
    * Sends a verification email — the user must call verifyEmail() before logging in.
    *
+   * Statuses:
+   *   'created'        — account created, verification code emailed.
+   *   'resumed'        — an unfinished signup (email never verified) already existed for
+   *                      this address; its credentials were replaced with this attempt's
+   *                      and a fresh code was emailed. Continue exactly like 'created'.
+   *   'pending_review' — registration held for manual review (no account yet).
+   * A VERIFIED account with this email is a hard conflict — throws HTTP 409.
+   *
    * @param {object} body
    * @param {string} body.email
    * @param {string} body.password     - Min 8 characters.
    * @param {string} [body.name]       - Display name.
-   * @param {string} [body.orgName]    - Organisation name (defaults to email domain).
-   * @returns {Promise<{ userId: string, orgId: string }>}
+   * @param {string} [body.orgName]    - Company/organisation name (falls back to the
+   *                                     email domain when omitted). On a 'resumed'
+   *                                     signup it also renames the existing org.
+   * @param {string} [body.referralCode] - Referral code from a ?ref= signup link.
+   * @param {boolean} body.acceptLegal - Must be `true` — clickwrap acceptance of the
+   *   current MSA, Abuse Policy, and Privacy Policy (see sdk.legal.getDocuments()).
+   *   Throws HTTP 400 if omitted or false.
+   * @returns {Promise<{ status: 'created' | 'resumed' | 'pending_review' }>}
    *
    * @example
    * const { userId, orgId } = await sdk.auth.signup({
@@ -42,6 +59,7 @@ export class AuthService {
    *   password: 'hunter2!',
    *   name: 'Alice',
    *   orgName: 'Acme Corp',
+   *   acceptLegal: true,
    * });
    */
   signup(body) { return this.sdk._fetch('/auth/signup', 'POST', { body }); }
@@ -77,6 +95,10 @@ export class AuthService {
    *
    * @param {object} params
    * @param {string} params.idToken - Firebase ID token from the client SDK.
+   * @param {boolean} [params.acceptLegal] - Pass `true` when the caller has shown and the user
+   *   has checked the legal-docs acceptance box. Only required when the Google account is NEW —
+   *   without it, the API rejects a new-account attempt with an error whose message is exactly
+   *   `legal_acceptance_required` so the caller can show the checkbox and retry.
    * @returns {Promise<{ userId: string, orgId: string, role: string, isNew: boolean }>}
    *   `isNew: true` means the account was just created via social login.
    *
@@ -86,7 +108,7 @@ export class AuthService {
    * const idToken = await user.getIdToken();
    * const session = await sdk.auth.loginFirebase({ idToken });
    */
-  loginFirebase({ idToken }) { return this.sdk._fetch('/auth/login/firebase', 'POST', { body: { idToken } }); }
+  loginFirebase({ idToken, acceptLegal }) { return this.sdk._fetch('/auth/login/firebase', 'POST', { body: { idToken, acceptLegal } }); }
 
   /**
    * Log out the current user. Clears the session cookie.
@@ -132,12 +154,17 @@ export class AuthService {
    * @param {object} params
    * @param {string} params.code    - 6-digit verification code from the email.
    * @param {string} [params.email] - Account email (required when unauthenticated).
-   * @returns {Promise<{ ok: true }>}
+   * @param {string} [params.linkToken] - Single-use token from the emailed link's `lt`
+   *   param. When valid, the response also starts a session (sets the cookie) and
+   *   includes `user`/`org` (+ `card_verification_required` when signup setup is
+   *   unfinished) so the caller can resume the signup wizard. The typed code alone
+   *   never starts a session.
+   * @returns {Promise<{ ok: true, user?: object, org?: object, card_verification_required?: true }>}
    *
    * @example
    * await sdk.auth.verifyEmail({ email: 'alice@example.com', code: '847291' });
    */
-  verifyEmail({ code, email }) { return this.sdk._fetch('/auth/verify-email', 'POST', { body: { code, email } }); }
+  verifyEmail({ code, email, linkToken }) { return this.sdk._fetch('/auth/verify-email', 'POST', { body: { code, email, linkToken } }); }
 
   /**
    * Resend the email verification code. Uses the current session's address, or
@@ -215,4 +242,50 @@ export class AuthService {
    * // session.userId, session.role, etc.
    */
   verifyMfa({ code }) { return this.sdk._fetch('/auth/mfa/verify', 'POST', { body: { code } }); }
+
+  /**
+   * Signup card verification (spam gate) — places a temporary $1 authorization on the
+   * given card to prove it's real, then releases it immediately. The customer is
+   * NEVER charged. login()/getSession()/loginFirebase() report whether this is still
+   * needed via `card_verification_required: true`.
+   *
+   * @param {object} params
+   * @param {string} params.paymentMethodId - A Stripe PaymentMethod id (create it
+   *   client-side with Stripe.js/Elements first — no raw card data touches our server).
+   * @returns {Promise<
+   *   { ok: true, alreadyVerified?: true } |
+   *   { requiresAction: true, clientSecret: string, paymentIntentId: string } |
+   *   { paymentFailed: true, declineCode: string|null, errorCode: string|null }
+   * >}
+   *   `requiresAction` means the card needs 3D Secure — complete it client-side with
+   *   Stripe.js's `handleNextAction(clientSecret)`, then call confirmCardVerification()
+   *   with the same `paymentIntentId`.
+   * @throws {Error} 503 if Stripe is not configured — the UI should skip this step.
+   *
+   * @example
+   * const result = await sdk.auth.verifyCard({ paymentMethodId: 'pm_...' });
+   * if (result.requiresAction) {
+   *   await stripe.handleNextAction({ clientSecret: result.clientSecret });
+   *   const confirmed = await sdk.auth.confirmCardVerification({ paymentIntentId: result.paymentIntentId });
+   * }
+   */
+  verifyCard({ paymentMethodId }) { return this.sdk._fetch('/auth/verify-card', 'POST', { body: { paymentMethodId } }); }
+
+  /**
+   * Re-check a card verification PaymentIntent after the cardholder completes a 3D
+   * Secure challenge (follow-up to verifyCard()'s `requiresAction` response).
+   *
+   * @param {object} params
+   * @param {string} params.paymentIntentId - The id returned by verifyCard().
+   * @returns {Promise<
+   *   { ok: true, alreadyVerified?: true } |
+   *   { requiresAction: true, clientSecret: string, paymentIntentId: string } |
+   *   { paymentFailed: true, declineCode: string|null, errorCode: string|null }
+   * >}
+   * @throws {Error} 503 if Stripe is not configured.
+   *
+   * @example
+   * const confirmed = await sdk.auth.confirmCardVerification({ paymentIntentId: 'pi_...' });
+   */
+  confirmCardVerification({ paymentIntentId }) { return this.sdk._fetch('/auth/verify-card/confirm', 'POST', { body: { paymentIntentId } }); }
 }

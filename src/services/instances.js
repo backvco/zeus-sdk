@@ -13,7 +13,11 @@
  *   2. heartbeat()      — called periodically from within the running Zeus instance
  *   3. pushKeypair()    — register the instance's RSA public key for trust
  *   4. getSsoRedirect() — generate a login URL for SSO from the console to the instance
- *   5. delete()         — decommission when the instance is torn down
+ *   5. resumePreview()/resume()/resumeConfirm() — customer re-enables their own instance
+ *                         after a suspension (e.g. following an admin enableOrg()) and
+ *                         resumes billing; resumeConfirm() finishes a 3DS-challenged
+ *                         resume (invoice-based, distinct from confirmPayment()'s hold)
+ *   6. delete()         — decommission when the instance is torn down
  */
 export class InstancesService {
   constructor(sdk) { this.sdk = sdk; }
@@ -22,29 +26,238 @@ export class InstancesService {
    * Register a new Zeus instance. Returns the license key that the instance
    * must use for all server-to-server SDK calls.
    *
+   * Each instance gets its own subscription (per-instance billing). `planId` is now
+   * REQUIRED. The free plan allows exactly one (non-deleted) instance per org — a
+   * second attempt returns 400. The org's 30-day trial window starts on the org's
+   * very first instance ever (any plan) and is shared/read-only after that (a Zeus
+   * admin can extend it — see `sdk.internal.admin.updateOrg`).
+   *
+   * **Paid-plan payment contract:** payment is validated BEFORE anything is created —
+   * this call never leaves compute/DB provisioned for an org that can't pay. If
+   * `planId` resolves to a paid plan and the org has no valid payment method on file
+   * (even while still inside its trial window — trial only defers the first charge,
+   * it does not waive card validation), this call creates NOTHING and rejects with
+   * HTTP 402 and body `{ error: string, needsPaymentMethod: true }`. Route the user to
+   * add a card (`sdk.billing.createSetupIntent()` / the payment-methods flow) and
+   * retry.
+   *
+   * If a valid payment method is on file, the instance is created and a real Stripe
+   * subscription is set up per `billingChoice`. Use `sdk.instances.getBillingPreview()`
+   * beforehand to show the user exactly what will happen — never guess the trial/charge
+   * outcome client-side, the API computes it. Even after the payment-method check
+   * passes, the actual CHARGE can still fail for an immediate-charge request
+   * (`billingChoice: 'pay_now'`, or `'trial'` with no trial available) — this call
+   * verifies the charge went through before returning, and creates NOTHING (no
+   * instance, no subscription) if it didn't. There are two distinct non-success
+   * outcomes, and the UI MUST tell them apart:
+   *   - **Declined** — rejects with HTTP 402 and body
+   *     `{ error: string, paymentFailed: true, declineCode?: string, errorCode?: string }`.
+   *     Map `declineCode`/`errorCode` to human copy client-side (never show Stripe's
+   *     raw error text) and let the user pick another card.
+   *   - **Requires 3D Secure / SCA authentication** — NOT a decline, and NOT an error to
+   *     surface as one. Resolves normally (200) with
+   *     `{ requiresAction: true, clientSecret: string, holdId: string }` and creates
+   *     NOTHING yet. Drive the cardholder through
+   *     `stripe.handleNextAction({ clientSecret })` (or `confirmCardPayment`), then call
+   *     `sdk.instances.confirmPayment({ holdId })` to finish creating the instance once
+   *     the challenge succeeds. If the user never completes the challenge, nothing was
+   *     ever created and the background cleanup job voids the still-open authorization
+   *     hold (2026-07-14: instance creation authorizes a card hold and only captures it
+   *     once the instance is actually built — see the API's authHold.js — so an
+   *     abandoned challenge never charges the customer at all).
+   *
    * @param {object} params
-   * @param {string} params.name      - Human-readable name, e.g. "Production".
-   * @param {string} params.subdomain - URL-safe subdomain slug, e.g. "prod".
-   * @param {string} params.planId    - ID of the billing plan to subscribe to ("pln_...").
+   * @param {string} params.name        - Human-readable name, e.g. "Production".
+   * @param {string} params.subdomain   - URL-safe subdomain slug, e.g. "prod".
+   * @param {string} params.planId      - ID of the billing plan to subscribe to ("pln_...").
+   *   Required. Must be an active plan.
+   * @param {'cloud'|'self'} [params.hostingMode] - Who runs the container. Defaults to 'cloud'.
+   *   'self' is rejected (403) unless the org has `selfHostEnabled`.
+   * @param {'trial'|'pay_now'} [params.billingChoice='trial'] - Only meaningful for paid
+   *   plans. `'trial'` (default) defers the first charge to the org's trial window when
+   *   one is available/active (see `getBillingPreview().trial`); `'pay_now'` charges
+   *   immediately today and does NOT consume the org's trial — other instances can
+   *   still use it. If no trial applies, `'trial'` and `'pay_now'` behave identically
+   *   (charge immediately) — there's nothing to defer to.
+   * @param {'monthly'|'annual'} [params.billingPeriod='monthly'] - Recurring billing
+   *   period. `'annual'` requires the plan to have an annual price configured (see
+   *   `getBillingPreview().plan.annualAvailable`).
+   * @param {string} [params.paymentMethodId] - Use this specific saved card ("pm_...")
+   *   instead of the org's Stripe default/first card. Must belong to the org's Stripe
+   *   customer — rejected with HTTP 400 otherwise.
    * @returns {Promise<{
    *   id: string,          // "ins_..."
    *   name: string,
    *   subdomain: string,
    *   licenseKey: string,  // "ins_..." key — store securely, shown only once
    *   planId: string,
+   *   hostingMode: 'cloud' | 'self',
+   *   provisioningStatus: 'provisioning' | 'awaiting_install' | 'ready' | 'failed',
    *   createdAt: string,
    * }>}
+   *   On failure with a paid plan + no payment method: rejects with `err.status === 402`
+   *   and `err.body.needsPaymentMethod === true`. On failure with a declined/failed
+   *   charge: rejects with `err.status === 402` and `err.body.paymentFailed === true`
+   *   (plus `err.body.declineCode` / `err.body.stripeMessage` when Stripe provided them).
    *
    * @example
-   * const instance = await sdk.instances.register({
-   *   name: 'Production',
-   *   subdomain: 'prod',
-   *   planId: 'pln_starter_abc123',
-   * });
+   * const preview = await sdk.instances.getBillingPreview({ planId: 'pln_starter_abc123' });
+   * // preview.charge.whenCreated: 'none' | 'immediate' | 'deferred'
+   *
+   * let instance;
+   * try {
+   *   instance = await sdk.instances.register({
+   *     name: 'Production',
+   *     subdomain: 'prod',
+   *     planId: 'pln_starter_abc123',
+   *     hostingMode: 'cloud',
+   *     billingChoice: preview.canChooseTrialOrPayNow ? 'trial' : 'pay_now',
+   *   });
+   * } catch (err) {
+   *   if (err.body?.needsPaymentMethod) {
+   *     // Prompt the user to add a card, then retry register().
+   *   } else if (err.body?.paymentFailed) {
+   *     // Show err.body.stripeMessage inline, let the user pick another card.
+   *   }
+   *   throw err;
+   * }
    * // Store instance.licenseKey in your deployment secrets
    * console.log('License key:', instance.licenseKey);
    */
-  register({ name, subdomain, planId, port }) { return this.sdk._fetch('/instances', 'POST', { body: { name, subdomain, planId, port } }); }
+  register({ name, subdomain, planId, port, hostingMode, billingChoice, billingPeriod, paymentMethodId }) {
+    return this.sdk._fetch('/instances', 'POST', {
+      body: {
+        name, subdomain, planId, port, hostingMode, billingChoice, billingPeriod, paymentMethodId,
+      },
+    });
+  }
+
+  /**
+   * Finish creating an instance (or resume a retry — see `retryProvision()`) after a
+   * `register()`/`retryProvision()` call came back with
+   * `{ requiresAction: true, clientSecret, holdId }` and the cardholder has completed
+   * the 3D Secure / SCA challenge (`stripe.handleNextAction({ clientSecret })`
+   * client-side). Re-verifies with Stripe that the authorization is genuinely confirmed
+   * (not yet charged — see `register()`'s doc) before creating anything — calling this
+   * before the challenge completes just returns `{ requiresAction: true, ... }` again
+   * (safe to poll/retry).
+   *
+   * @param {object} params
+   * @param {string} params.holdId - the authorization-hold id from the `register()`/
+   *   `retryProvision()` `requiresAction` response ("iah_...").
+   * @returns {Promise<object>} the same instance shape `register()` resolves with, on
+   *   success. On a still-pending challenge, resolves with
+   *   `{ requiresAction: true, clientSecret, holdId }` again. On a genuine decline (the
+   *   bank rejected the authorization even after the challenge), rejects with HTTP 402
+   *   and body `{ error, paymentFailed: true, declineCode?, errorCode?, pendingPurchase?
+   *   }` — same shape as `register()`'s decline case, nothing created and nothing
+   *   charged. `pendingPurchase` (fresh-create holds only — never present for a retry-
+   *   provision hold, since that instance already exists) is `{ name, subdomain,
+   *   planId, billingPeriod, hostingMode, port }`, the original creation request —
+   *   handed back exactly ONCE so the caller can re-open its create-instance UI
+   *   pre-filled on the card step (a redirect-based 3DS decline lands the user back on
+   *   a fresh page load with no in-memory wizard state left — see zeus-console-ui's
+   *   CreateInstanceModal `resumePendingPurchase` prop). It's `null`/absent if the
+   *   pending payload was already consumed or swept.
+   */
+  confirmPayment({ holdId }) {
+    return this.sdk._fetch('/instances/confirm-payment', 'POST', { body: { holdId } });
+  }
+
+  /**
+   * Preview the exact billing consequence of creating an instance on this plan for
+   * the current org — computed entirely server-side (single source of truth). Call
+   * this before `register()` and drive all charge/trial copy from the response;
+   * never recompute trial/charge logic client-side.
+   *
+   * @param {object} params
+   * @param {string} params.planId - ID of the billing plan being considered ("pln_...").
+   * @param {'monthly'|'annual'} [params.billingPeriod='monthly'] - Which recurring
+   *   period to preview. The response always includes both `plan.monthlyPriceCents`
+   *   and `plan.annualTotalCents` (when available) so a period toggle can show both
+   *   without a second round-trip; `charge`/`billingPeriod` reflect the requested one.
+   * @returns {Promise<{
+   *   plan: {
+   *     id: string, name: string, isFree: boolean,
+   *     monthlyPriceCents: number,
+   *     annualMonthlyPriceCents: number | null,  // MONTHLY rate billed annually — not a total
+   *     annualTotalCents: number | null,         // DERIVED yearly total — use this, never
+   *                                               // annualMonthlyPriceCents * 12 yourself
+   *     annualAvailable: boolean,
+   *     annualSavingsPercent: number | null,
+   *   },
+   *   billingPeriod: 'monthly' | 'annual',
+   *   trial: {
+   *     available: boolean,
+   *     active: boolean,
+   *     expiresAt: string | null,
+   *     daysRemaining: number | null,
+   *     reason: 'available' | 'active' | 'expired',
+   *   },
+   *   charge: {
+   *     whenCreated: 'none' | 'immediate' | 'deferred',
+   *     amountCents: number,       // charged TODAY (0 for 'none'/'deferred')
+   *     fullPeriodCents: number,   // the un-prorated STEADY-STATE recurring price
+   *     prorated: boolean,         // true when the relevant charge is a partial period
+   *     periodStart: string | null,
+   *     periodEnd: string | null,        // MONTHLY: the billing anchor date (1st of the
+   *                                       // month on/after trial end). ANNUAL (no anchor,
+   *                                       // no proration — Cameron, 2026-07-13): the real
+   *                                       // ANNIVERSARY instant, one year from periodStart.
+   *     deferredChargeCents: number | undefined,  // ONLY on 'deferred': the REAL amount
+   *       // Stripe will charge AT deferredUntil — live-verified against Stripe. MONTHLY:
+   *       // possibly prorated (billing_cycle_anchor + 'create_prorations'). ANNUAL: the
+   *       // FULL annual total, never prorated — this is charged automatically at
+   *       // trial_end via Stripe's normal trial lifecycle.
+   *     nextInvoiceDate: string | null,  // when the STEADY-STATE nextInvoiceCents begins
+   *     nextInvoiceCents: number,        // the steady-state recurring price thereafter
+   *     deferredUntil: string | null,    // trial end, when whenCreated === 'deferred'
+   *   },
+   *   alternateCharge: null | ( same shape as `charge` ),  // the honest pay-now number
+   *     to show on the pay-now OPTION CARD when a trial is ALSO being offered (so both
+   *     cards can quote real figures before the user picks) — null when there's nothing
+   *     to alternate to (already immediate, or free).
+   *   pricingSource: 'stripe' | 'estimated' | null,  // 'stripe' — every figure above
+   *     came from Stripe's own invoice preview of the exact subscription about to be
+   *     created (stripe.invoices.retrieveUpcoming — NOT locally-computed proration
+   *     math, which was found to disagree with Stripe's second-based proration by
+   *     tens of dollars for realistic, non-midnight timestamps). 'estimated' — Stripe
+   *     is unconfigured server-side; these are local approximations only — creating
+   *     the instance will fail until Stripe is configured. Show these figures as
+   *     approximate, never as the exact charge. `null` — free plan, no money involved.
+   *   paymentMethod: { onFile: boolean, brand?: string, last4?: string },
+   *   canChooseTrialOrPayNow: boolean,
+   * }>}
+   *   `trial.reason`: `'available'` — the org has never used its trial (trialExpiresAt
+   *   is null); creating this instance would START it, and `charge.deferredUntil`
+   *   reflects the would-be end date. `'active'` — already in a trial window.
+   *   `'expired'` — the trial ran out; paid plans charge immediately, no
+   *   trial-vs-pay-now choice is offered (`canChooseTrialOrPayNow` is false).
+   *
+   *   `charge.amountCents` is always the REAL amount that will be charged TODAY.
+   *   MONTHLY: real proration applied (server's calculateProration) — never the full
+   *   price for a mid-period signup. ANNUAL (Cameron, 2026-07-13): NEVER prorated —
+   *   `amountCents` for an immediate annual signup IS the full annual total, charged
+   *   today, no anchor. For `whenCreated: 'deferred'`, nothing is charged today
+   *   (`amountCents: 0`) — the first REAL charge is `deferredChargeCents` at
+   *   `deferredUntil`. MONTHLY: possibly prorated when trial end doesn't land on a
+   *   month boundary — live-verified against Stripe test mode, e.g. a $1,110.00/mo
+   *   plan with a trial ending 12 Aug bills exactly $716.13 at trial end, not the full
+   *   $1,110.00. ANNUAL: the full annual total, every time — no proration. After the
+   *   first charge, billing settles into `nextInvoiceCents` on `nextInvoiceDate`
+   *   (the anniversary, for annual) and every period following.
+   *
+   * @example
+   * const preview = await sdk.instances.getBillingPreview({ planId: 'pln_starter_abc123' });
+   * if (preview.charge.whenCreated === 'deferred') {
+   *   console.log(`No charge today — $${preview.charge.deferredChargeCents / 100} on ${preview.charge.deferredUntil}, then $${preview.charge.nextInvoiceCents / 100}/period`);
+   * } else if (preview.charge.whenCreated === 'immediate') {
+   *   console.log(`$${preview.charge.amountCents / 100} today, then $${preview.charge.nextInvoiceCents / 100} on ${preview.charge.nextInvoiceDate}`);
+   * }
+   */
+  getBillingPreview({ planId, billingPeriod }) {
+    return this.sdk._fetch('/instances/billing-preview', 'GET', { query: { planId, billingPeriod } });
+  }
 
   /**
    * List all instances belonging to the current organisation.
@@ -233,4 +446,235 @@ export class InstancesService {
    * const { members, seatUsed, seatLimit } = await sdk.instances.listMembers({ id: 'ins_abc123' });
    */
   listMembers({ id }) { return this.sdk._fetch(`/instances/${id}/members`, 'GET'); }
+
+  /**
+   * Verify console→instance reachability using the nonce-challenge probe.
+   * Called by the installer's Go binary (or manually) after the instance
+   * reports its first heartbeat. Uses the instance's own license key
+   * (X-License-Key auth) — NOT a session-authenticated call.
+   *
+   * @returns {Promise<{
+   *   reachable: boolean,
+   *   tls_ok: boolean,
+   *   nonce_ok: boolean,
+   *   last_heartbeat_at: string | null,
+   *   detail: string | null,
+   * }>}
+   *
+   * @example
+   * // Called with an instance-scoped SDK (license key auth)
+   * const result = await sdk.instances.verify();
+   * if (result.reachable && result.tls_ok && result.nonce_ok) console.log('probe passed');
+   */
+  verify() { return this.sdk._fetch('/instances/verify', 'POST', { body: {} }); }
+
+  /**
+   * Report this instance's current public IPv4 address so the console can
+   * provision (or update) the DNS record for its subdomain.
+   * Callable by the instance itself (license key) or by a console session
+   * user who owns the instance's org.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @param {string} params.ip - Public IPv4 address, e.g. "203.0.113.7".
+   * @returns {Promise<{ dnsTarget: string, dnsProvisionedAt: string }>}
+   *
+   * @example
+   * await sdk.instances.setDnsTarget({ id: 'ins_abc123', ip: '203.0.113.7' });
+   */
+  setDnsTarget({ id, ip }) { return this.sdk._fetch(`/instances/${id}/dns-target`, 'POST', { body: { ip } }); }
+
+  /**
+   * Get the full self-hosted install command for this instance — a
+   * ready-to-run `curl … | bash` one-liner embedding the instance's license
+   * key. Always fetch this rather than assembling it client-side.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ command: string }>}
+   *
+   * @example
+   * const { command } = await sdk.instances.getInstallCommand({ id: 'ins_abc123' });
+   */
+  getInstallCommand({ id }) { return this.sdk._fetch(`/instances/${id}/install-command`, 'GET'); }
+
+  /**
+   * Retry a failed cloud provisioning build.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ ok: true }>}
+   *
+   * @example
+   * await sdk.instances.retryProvision({ id: 'ins_abc123' });
+   */
+  retryProvision({ id }) { return this.sdk._fetch(`/instances/${id}/retry-provision`, 'POST', { body: {} }); }
+
+  /**
+   * Preview the exact billing consequence of resuming a suspended instance — call this
+   * BEFORE `resume()` and show the customer the amount and the card that will be
+   * charged. Read-only: never mutates anything in Stripe. This project's rule is that
+   * a card charge is never a surprise — resuming a monthly instance mid-period can
+   * charge a prorated fee for the remainder of the current term, and the customer must
+   * see that figure and the payment method up front.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{
+   *   resumable: boolean,
+   *   purchaseRequired: boolean,   // annual subscription whose paid term lapsed while
+   *                                 // suspended — resume() will 402; the customer must
+   *                                 // purchase again instead.
+   *   requiresPayment: boolean,    // true for a monthly instance resumed mid-period;
+   *                                 // false for an annual instance still within its
+   *                                 // already-paid term (resumes at no charge).
+   *   amountDueCents: number,      // Stripe's figure for the partial period; 0 when
+   *                                 // nothing is owed.
+   *   currency: string,
+   *   coverageStart: string,       // start of the partial window being charged for
+   *   coverageEnd: string,         // end of that window, e.g. resuming Jun 20 on a
+   *                                 // monthly plan covers Jun 20 -> Jun 30.
+   *   nextInvoiceDate: string,     // when normal recurring billing resumes, e.g. Jul 1
+   *   nextAmountCents: number,
+   *   paymentMethod: { id: string, brand: string, last4: string, nickname: string | null } | null,
+   * }>}
+   *
+   * @example
+   * const preview = await sdk.instances.resumePreview({ id: 'ins_abc123' });
+   * if (preview.purchaseRequired) {
+   *   // Route to purchase-again flow, not resume().
+   * } else if (preview.requiresPayment) {
+   *   // Show `${preview.amountDueCents / 100}` charged to preview.paymentMethod, then resume().
+   * } else {
+   *   await sdk.instances.resume({ id: 'ins_abc123' });
+   * }
+   */
+  resumePreview({ id }) { return this.sdk._fetch(`/instances/${id}/resume-preview`, 'GET'); }
+
+  /**
+   * Resume a suspended instance. Typically called by the customer after a Zeus admin
+   * has re-enabled their org (see `sdk.internal.admin.enableOrg`) — an org enable does
+   * NOT automatically resume instances, so the customer takes this action explicitly.
+   *
+   * Call `resumePreview()` first and show the customer the amount/card before calling
+   * this — never charge a card as a surprise.
+   *
+   * Re-enables the instance, restarts its cloud container, and resumes billing:
+   *   - Monthly subscription — un-pauses and resumes normal recurring billing. If
+   *     resumed mid-period, this charges a prorated fee for the remainder of the
+   *     current term (see `resumePreview().amountDueCents`) using `paymentMethodId`
+   *     (or the org's default card if omitted).
+   *   - Annual subscription still within its paid term — resumes at no charge for the
+   *     remainder of the term.
+   *   - Annual subscription whose paid term lapsed while suspended — rejects with HTTP
+   *     402 and body `{ error: 'purchase_required' }`; the customer must purchase again
+   *     (there is no partial-term proration path here, unlike `register()`'s payment
+   *     flow).
+   *
+   * The instance is only re-enabled after payment actually succeeds. Like
+   * `register()`, a charge may require 3D Secure / SCA — in that case this REJECTS
+   * with `err.status === 402` and `err.body === { requiresAction: true, clientSecret,
+   * invoiceId }` and does NOT re-enable the instance yet.
+   *
+   * IMPORTANT: this is a DIFFERENT continuation than the purchase flow. Resume collects
+   * money via a Stripe INVOICE, not a payment-intent hold — there is no `holdId` here.
+   * Do NOT call `confirmPayment({ holdId })` for a resume challenge; it will not work.
+   * Drive the cardholder through `stripe.handleNextAction({ clientSecret })`, then call
+   * `resumeConfirm({ id, invoiceId })` to finish resuming once the challenge succeeds.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @param {string} [params.paymentMethodId] - Use this specific saved card ("pm_...")
+   *   for the prorated charge instead of the org's Stripe default/first card. Ignored
+   *   when `resumePreview().requiresPayment` is false.
+   * @returns {Promise<{ ok: true }>}
+   *   On a lapsed annual term: rejects with `err.status === 402` and
+   *   `err.body.error === 'purchase_required'`. On a charge requiring 3DS/SCA: rejects
+   *   with `err.status === 402` and `err.body === { requiresAction: true, clientSecret,
+   *   invoiceId }` — see `resumeConfirm()`. On a declined charge: rejects with
+   *   `err.status === 402` and `err.body.paymentFailed === true`.
+   *
+   * @example
+   * const preview = await sdk.instances.resumePreview({ id: 'ins_abc123' });
+   * if (preview.purchaseRequired) {
+   *   // route the customer to purchase again
+   * } else {
+   *   try {
+   *     await sdk.instances.resume({ id: 'ins_abc123' });
+   *   } catch (err) {
+   *     if (err.body?.requiresAction) {
+   *       await stripe.handleNextAction({ clientSecret: err.body.clientSecret });
+   *       await sdk.instances.resumeConfirm({ id: 'ins_abc123', invoiceId: err.body.invoiceId });
+   *     } else {
+   *       throw err;
+   *     }
+   *   }
+   * }
+   */
+  resume({ id, paymentMethodId }) { return this.sdk._fetch(`/instances/${id}/resume`, 'POST', { body: { paymentMethodId } }); }
+
+  /**
+   * Finish resuming an instance after `resume()` rejected with
+   * `{ requiresAction: true, clientSecret, invoiceId }` and the cardholder has
+   * completed the 3D Secure / SCA challenge (`stripe.handleNextAction({ clientSecret })`
+   * client-side).
+   *
+   * This is the resume flow's OWN confirm step — resume collects money via a Stripe
+   * INVOICE, not the payment-intent hold used by `register()`/`confirmPayment({
+   * holdId })`. Do not mix the two: calling `confirmPayment({ holdId })` for a resume
+   * challenge is wrong (there is no hold) and would leave the customer charged but
+   * still suspended.
+   *
+   * Re-reads the invoice from Stripe itself (never trusts the client's word that
+   * payment succeeded) and:
+   *   - Invoice paid — the instance is enabled and its container started, ONLY at this
+   *     point. Resolves `{ instance, billing: { charged: true, amountChargedCents,
+   *     invoiceId } }`.
+   *   - Still mid-challenge — nothing has changed yet. Resolves with the same
+   *     `{ requiresAction: true, clientSecret, invoiceId }` shape again (safe to poll).
+   *   - Payment genuinely failed — the subscription is put back to its paused state and
+   *     the instance stays suspended (no free service). Rejects with
+   *     `err.status === 402` and `err.body === { error, paymentFailed: true,
+   *     declineCode?, errorCode? }`.
+   *
+   * Idempotent — safe to call more than once (e.g. the customer refreshed mid-challenge).
+   *
+   * @param {object} params
+   * @param {string} params.id        - Instance ID ("ins_...").
+   * @param {string} params.invoiceId - The Stripe invoice ID from `resume()`'s
+   *   `requiresAction` response ("in_...").
+   * @returns {Promise<
+   *   { instance: object, billing: { charged: true, amountChargedCents: number, invoiceId: string } }
+   *   | { requiresAction: true, clientSecret: string, invoiceId: string }
+   * >}
+   *
+   * @example
+   * try {
+   *   await sdk.instances.resume({ id: 'ins_abc123' });
+   * } catch (err) {
+   *   if (err.body?.requiresAction) {
+   *     await stripe.handleNextAction({ clientSecret: err.body.clientSecret });
+   *     const result = await sdk.instances.resumeConfirm({ id: 'ins_abc123', invoiceId: err.body.invoiceId });
+   *     if (result.requiresAction) {
+   *       // challenge still not complete; re-prompt or poll
+   *     }
+   *   }
+   * }
+   */
+  resumeConfirm({ id, invoiceId }) { return this.sdk._fetch(`/instances/${id}/resume-confirm`, 'POST', { body: { invoiceId } }); }
+
+  /**
+   * Check whether a subdomain slug is available for a new instance. Subdomains are
+   * globally unique and permanent once an instance is created — use this to give
+   * live feedback in the create-instance wizard before the user submits.
+   *
+   * @param {object} params
+   * @param {string} params.subdomain - Candidate subdomain slug to check.
+   * @returns {Promise<{ available: boolean, reason?: 'invalid' | 'taken' }>}
+   *
+   * @example
+   * const { available, reason } = await sdk.instances.checkSubdomain({ subdomain: 'acme' });
+   * if (!available) console.log(reason); // 'invalid' | 'taken'
+   */
+  checkSubdomain({ subdomain }) { return this.sdk._fetch('/instances/subdomain-available', 'GET', { query: { subdomain } }); }
 }
