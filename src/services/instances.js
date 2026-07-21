@@ -273,6 +273,11 @@ export class InstancesService {
    *   clusterCount: number,
    *   vcpuAvg: number,
    *   enabled: boolean,
+   *   currentImage: string | null,        // image ref this instance's container is running
+   *   upgradeStatus: 'running' | 'failed' | 'succeeded' | null,
+   *   upgradeStep: string | null,         // short human string while upgradeStatus === 'running'
+   *   upgradeError: string | null,        // set only when upgradeStatus === 'failed'
+   *   lastUpgradeAt: string | null,
    *   createdAt: string,
    * }>>}
    *
@@ -301,6 +306,11 @@ export class InstancesService {
    *   vcpuAvg: number,
    *   enabled: boolean,
    *   publicKey: string | null,
+   *   currentImage: string | null,        // image ref this instance's container is running
+   *   upgradeStatus: 'running' | 'failed' | 'succeeded' | null,
+   *   upgradeStep: string | null,         // short human string while upgradeStatus === 'running'
+   *   upgradeError: string | null,        // set only when upgradeStatus === 'failed'
+   *   lastUpgradeAt: string | null,
    *   createdAt: string,
    * }>}
    *
@@ -677,4 +687,70 @@ export class InstancesService {
    * if (!available) console.log(reason); // 'invalid' | 'taken'
    */
   checkSubdomain({ subdomain }) { return this.sdk._fetch('/instances/subdomain-available', 'GET', { query: { subdomain } }); }
+
+  /**
+   * Get the latest published Zeus release — used to show an "upgrade available" badge
+   * before calling `upgrade()`. Session-authenticated; not scoped to any one instance.
+   *
+   * @returns {Promise<{ version: string | null, image: string | null, publishedAt: string | null }>}
+   *   All null if the release manifest couldn't be fetched right now — never rejects for that.
+   *
+   * @example
+   * const latest = await sdk.instances.getLatestVersion();
+   * if (latest.version && latest.version !== instance.zeusVersion) showUpgradeBadge();
+   */
+  getLatestVersion() { return this.sdk._fetch('/instances/latest-version', 'GET'); }
+
+  /**
+   * Upgrade a cloud-hosted instance in place to the latest published Zeus release. Pulls
+   * the new image, recreates the container (migrations auto-run on boot), and waits for
+   * it to come back healthy — all in the background; this call returns as soon as the
+   * pipeline is kicked off. Poll `get()`/`list()` (or subscribe to
+   * `instance:<id>:upgrade` via `sdk.subscribe()`) for `upgradeStatus`/`upgradeStep`.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ started: true } | { started: false, upToDate: true }>}
+   *   `upToDate: true` — the instance is already on the latest image; nothing was started.
+   *   Rejects with HTTP 409 if an upgrade is already running, or the instance isn't
+   *   `hostingMode: 'cloud'` / `provisioningStatus: 'ready'`.
+   *
+   * @example
+   * const result = await sdk.instances.upgrade({ id: 'ins_abc123' });
+   * if (!result.started && result.upToDate) console.log('Already on the latest version');
+   */
+  upgrade({ id }) { return this.sdk._fetch(`/instances/${id}/upgrade`, 'POST', { body: {} }); }
+
+  /**
+   * Instance-triggered self-upgrade — same as `upgrade()` but authenticated with the
+   * instance's own license key (X-License-Key), for a Zeus instance to request its own
+   * upgrade rather than waiting on a console session user.
+   *
+   * @returns {Promise<{ started: true } | { started: false, upToDate: true }>}
+   *
+   * @example
+   * // Called with an instance-scoped SDK (license key auth)
+   * await sdk.instances.selfUpgrade();
+   */
+  selfUpgrade() { return this.sdk._fetch('/instances/self-upgrade', 'POST', { body: {} }); }
+
+  /**
+   * Poll this instance's own upgrade progress. Instance-authenticated (license key),
+   * same auth as `selfUpgrade()`.
+   *
+   * @returns {Promise<{
+   *   zeusVersion: string | null,
+   *   currentImage: string | null,
+   *   latestVersion: string | null,
+   *   latestImage: string | null,
+   *   upgradeStatus: 'running' | 'failed' | 'succeeded' | null,
+   *   upgradeStep: string | null,
+   *   upgradeError: string | null,
+   *   lastUpgradeAt: string | null,
+   * }>}
+   *
+   * @example
+   * const status = await sdk.instances.getSelfUpgradeStatus();
+   */
+  getSelfUpgradeStatus() { return this.sdk._fetch('/instances/self-upgrade/status', 'GET'); }
 }
