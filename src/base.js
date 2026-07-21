@@ -168,24 +168,32 @@ export class BaseSDK {
    * Subscribe to a server-sent event channel. Returns an unsubscribe function.
    * Browser only — uses EventSource with credentials.
    *
+   * The server publishes NAMED SSE events (ssePublish's `event:` field), and EventSource
+   * has no wildcard listener — so the caller must say which event types it wants via
+   * `eventTypes`. The forum types remain the default for backward compatibility.
+   *
    * @param {string}   channel  - Channel name, e.g. "forum:post:fpo_xxx"
    * @param {Function} handler  - Called with (eventType: string, data: any)
+   * @param {string[]} [eventTypes] - Named event types to listen for on this channel.
    * @returns {() => void} Call to close the connection.
    *
    * @example
-   * const unsub = sdk.subscribe('forum:post:fpo_abc', (type, data) => {
-   *   if (type === 'answer.new') setAnswers(prev => [...prev, data]);
-   * });
+   * const unsub = sdk.subscribe('instance:ins_abc:upgrade', (type, data) => {
+   *   if (type === 'upgrade.step') setStep(data.step);
+   * }, ['upgrade.step', 'upgrade.done', 'upgrade.failed']);
    * // later:
    * unsub();
    */
-  subscribe(channel, handler) {
+  subscribe(channel, handler, eventTypes) {
     const url = `${this.baseURL}/events?channel=${encodeURIComponent(channel)}`;
     const es = new EventSource(url, { withCredentials: true });
     const wrap = (type) => (e) => {
       try { handler(type, JSON.parse(e.data)); } catch { /* ignore bad JSON */ }
     };
-    for (const type of ['answer.new', 'answer.updated', 'answer.deleted', 'answer.accepted', 'forum.answer.new']) {
+    const types = eventTypes?.length
+      ? eventTypes
+      : ['answer.new', 'answer.updated', 'answer.deleted', 'answer.accepted', 'forum.answer.new'];
+    for (const type of types) {
       es.addEventListener(type, wrap(type));
     }
     es.onerror = () => {}; // suppress console noise on disconnect
