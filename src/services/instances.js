@@ -692,7 +692,7 @@ export class InstancesService {
    * Get the latest published Zeus release — used to show an "upgrade available" badge
    * before calling `upgrade()`. Session-authenticated; not scoped to any one instance.
    *
-   * @returns {Promise<{ version: string | null, image: string | null, publishedAt: string | null }>}
+   * @returns {Promise<{ version: string | null, image: string | null, publishedAt: string | null, notes: string | null }>}
    *   All null if the release manifest couldn't be fetched right now — never rejects for that.
    *
    * @example
