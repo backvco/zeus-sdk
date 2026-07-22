@@ -393,6 +393,9 @@ export class InstancesService {
    * @param {number}  params.clusterCount  - Number of clusters currently managed.
    * @param {string}  params.zeusVersion   - Current Zeus version string, e.g. "1.4.2".
    * @param {boolean} params.healthy       - Whether the instance considers itself healthy.
+   * @param {number|null} [params.dnsEndpointsActive] - Count of derived DNS records currently
+   *   armed for external automation (publish.external.enabled && publish.external.automation).
+   *   Null when the count couldn't be computed this cycle — omit reporting, don't fail the beat.
    * @returns {Promise<{ ok: true }>}
    *
    * @example
@@ -405,11 +408,12 @@ export class InstancesService {
    *     clusterCount: clusters.length,
    *     zeusVersion: '1.4.2',
    *     healthy: true,
+   *     dnsEndpointsActive: await countAutomatedEndpoints(),
    *   });
    * }, 60_000);
    */
-  heartbeat({ licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy }) {
-    return this.sdk._fetch('/heartbeat', 'POST', { body: { licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy } });
+  heartbeat({ licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy, dnsEndpointsActive }) {
+    return this.sdk._fetch('/heartbeat', 'POST', { body: { licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy, dnsEndpointsActive } });
   }
 
   /**
