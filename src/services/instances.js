@@ -274,9 +274,14 @@ export class InstancesService {
    *   vcpuAvg: number,
    *   enabled: boolean,
    *   currentImage: string | null,        // image ref this instance's container is running
-   *   upgradeStatus: 'running' | 'failed' | 'succeeded' | null,
+   *   upgradeStatus: 'pending' | 'running' | 'aborted' | 'failed' | 'succeeded' | null,
    *   upgradeStep: string | null,         // short human string while upgradeStatus === 'running'
    *   upgradeError: string | null,        // set only when upgradeStatus === 'failed'
+   *   upgradePendingUntil: string | null, // countdown deadline while upgradeStatus === 'pending'
+   *                                       // (null until the instance acks a console/admin-
+   *                                       // initiated upgrade — see `upgrade()`)
+   *   upgradeInitiator: string | null,    // display name of whoever requested the upgrade
+   *   upgradeAbortedBy: string | null,    // display name of whoever aborted the countdown
    *   lastUpgradeAt: string | null,
    *   createdAt: string,
    * }>>}
@@ -307,9 +312,12 @@ export class InstancesService {
    *   enabled: boolean,
    *   publicKey: string | null,
    *   currentImage: string | null,        // image ref this instance's container is running
-   *   upgradeStatus: 'running' | 'failed' | 'succeeded' | null,
+   *   upgradeStatus: 'pending' | 'running' | 'aborted' | 'failed' | 'succeeded' | null,
    *   upgradeStep: string | null,         // short human string while upgradeStatus === 'running'
    *   upgradeError: string | null,        // set only when upgradeStatus === 'failed'
+   *   upgradePendingUntil: string | null, // countdown deadline while upgradeStatus === 'pending'
+   *   upgradeInitiator: string | null,    // display name of whoever requested the upgrade
+   *   upgradeAbortedBy: string | null,    // display name of whoever aborted the countdown
    *   lastUpgradeAt: string | null,
    *   createdAt: string,
    * }>}
@@ -396,7 +404,11 @@ export class InstancesService {
    * @param {number|null} [params.dnsEndpointsActive] - Count of derived DNS records currently
    *   armed for external automation (publish.external.enabled && publish.external.automation).
    *   Null when the count couldn't be computed this cycle — omit reporting, don't fail the beat.
-   * @returns {Promise<{ ok: true }>}
+   * @returns {Promise<{ ok: true, upgrade_pending: { deadline: string, initiator: string | null, countdown_seconds: number } | null }>}
+   *   `upgrade_pending` is non-null only while the instance has a `'pending'` upgrade
+   *   countdown — this response IS one of the two ack points that stamps the deadline for
+   *   a console/admin-initiated upgrade (the other is `getSelfUpgradeStatus()`), so
+   *   `deadline` is always populated whenever this field is non-null.
    *
    * @example
    * // Called from within the Zeus process on an interval
@@ -706,18 +718,29 @@ export class InstancesService {
   getLatestVersion() { return this.sdk._fetch('/instances/latest-version', 'GET'); }
 
   /**
-   * Upgrade a cloud-hosted instance in place to the latest published Zeus release. Pulls
-   * the new image, recreates the container (migrations auto-run on boot), and waits for
-   * it to come back healthy — all in the background; this call returns as soon as the
-   * pipeline is kicked off. Poll `get()`/`list()` (or subscribe to
-   * `instance:<id>:upgrade` via `sdk.subscribe()`) for `upgradeStatus`/`upgradeStep`.
+   * Upgrade a cloud-hosted instance in place to the latest published Zeus release.
+   * Doesn't run immediately — enters a `'pending'` countdown (`countdownSeconds`, server-
+   * owned) that ANY user of the instance can abort with `upgradeAbort()` before it
+   * actually starts. Once the countdown elapses, the pipeline pulls the new image,
+   * recreates the container (migrations auto-run on boot), and waits for it to come back
+   * healthy — all in the background. Poll `get()`/`list()` (or subscribe to
+   * `instance:<id>:upgrade` via `sdk.subscribe()` for `upgrade.pending`/`upgrade.aborted`/
+   * `upgrade.step`/`upgrade.done`/`upgrade.failed`) for live status.
+   *
+   * Note: `deadline` may be `null` in the immediate response — this is a console/admin-
+   * initiated upgrade, so the countdown doesn't start until the instance itself acks (via
+   * its next heartbeat or self-upgrade-status poll); watch the SSE channel or re-poll
+   * `get()` for the stamped `upgradePendingUntil`.
    *
    * @param {object} params
    * @param {string} params.id - Instance ID ("ins_...").
-   * @returns {Promise<{ started: true } | { started: false, upToDate: true }>}
+   * @returns {Promise<
+   *   { started: true, pending: true, deadline: string | null, initiator: string | null, countdownSeconds: number }
+   *   | { started: false, upToDate: true }
+   * >}
    *   `upToDate: true` — the instance is already on the latest image; nothing was started.
-   *   Rejects with HTTP 409 if an upgrade is already running, or the instance isn't
-   *   `hostingMode: 'cloud'` / `provisioningStatus: 'ready'`.
+   *   Rejects with HTTP 409 if an upgrade countdown/run is already in progress, or the
+   *   instance isn't `hostingMode: 'cloud'` / `provisioningStatus: 'ready'`.
    *
    * @example
    * const result = await sdk.instances.upgrade({ id: 'ins_abc123' });
@@ -726,31 +749,76 @@ export class InstancesService {
   upgrade({ id }) { return this.sdk._fetch(`/instances/${id}/upgrade`, 'POST', { body: {} }); }
 
   /**
+   * Abort a pending upgrade countdown for an instance — session-authenticated,
+   * organization-scoped. Only valid while the instance's `upgradeStatus === 'pending'`;
+   * rejects with HTTP 409 otherwise.
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ aborted: true, abortedBy: string | null }>}
+   *
+   * @example
+   * await sdk.instances.upgradeAbort({ id: 'ins_abc123' });
+   */
+  upgradeAbort({ id }) { return this.sdk._fetch(`/instances/${id}/upgrade/abort`, 'POST', { body: {} }); }
+
+  /**
    * Instance-triggered self-upgrade — same as `upgrade()` but authenticated with the
    * instance's own license key (X-License-Key), for a Zeus instance to request its own
-   * upgrade rather than waiting on a console session user.
+   * upgrade rather than waiting on a console session user. Unlike `upgrade()`, the
+   * countdown deadline is stamped and returned immediately (this call itself is the ack —
+   * the instance gets the response synchronously and broadcasts it to its own users right
+   * away), so `deadline` is never `null` here.
    *
-   * @returns {Promise<{ started: true } | { started: false, upToDate: true }>}
+   * @param {object} [params]
+   * @param {string} [params.initiator] - Display name of the instance user who requested
+   *   the upgrade (e.g. "Cameron"), shown in the countdown UI everywhere. Optional.
+   * @returns {Promise<
+   *   { started: true, pending: true, deadline: string, initiator: string | null, countdownSeconds: number }
+   *   | { started: false, upToDate: true }
+   * >}
    *
    * @example
    * // Called with an instance-scoped SDK (license key auth)
-   * await sdk.instances.selfUpgrade();
+   * await sdk.instances.selfUpgrade({ initiator: 'Cameron' });
    */
-  selfUpgrade() { return this.sdk._fetch('/instances/self-upgrade', 'POST', { body: {} }); }
+  selfUpgrade({ initiator } = {}) { return this.sdk._fetch('/instances/self-upgrade', 'POST', { body: { initiator } }); }
+
+  /**
+   * Abort this instance's own pending upgrade countdown — instance-authenticated (license
+   * key), same auth as `selfUpgrade()`. Relayed from a local instance user aborting via
+   * the in-app countdown. Only valid while `upgradeStatus === 'pending'`; rejects with
+   * HTTP 409 otherwise.
+   *
+   * @param {object} [params]
+   * @param {string} [params.abortedBy] - Display name of the instance user who aborted it.
+   * @returns {Promise<{ aborted: true, abortedBy: string | null }>}
+   *
+   * @example
+   * await sdk.instances.selfUpgradeAbort({ abortedBy: 'Cameron' });
+   */
+  selfUpgradeAbort({ abortedBy } = {}) { return this.sdk._fetch('/instances/self-upgrade/abort', 'POST', { body: { abortedBy } }); }
 
   /**
    * Poll this instance's own upgrade progress. Instance-authenticated (license key),
-   * same auth as `selfUpgrade()`.
+   * same auth as `selfUpgrade()`. If a console/admin-initiated upgrade is `'pending'` and
+   * hasn't been acked yet, calling this STAMPS the countdown deadline (giving the full
+   * countdown window starting from this call) and broadcasts it — this is one of the two
+   * ack points (the other is the regular heartbeat's `upgrade_pending` field).
    *
    * @returns {Promise<{
    *   zeusVersion: string | null,
    *   currentImage: string | null,
    *   latestVersion: string | null,
    *   latestImage: string | null,
-   *   upgradeStatus: 'running' | 'failed' | 'succeeded' | null,
+   *   upgradeStatus: 'pending' | 'running' | 'aborted' | 'failed' | 'succeeded' | null,
    *   upgradeStep: string | null,
    *   upgradeError: string | null,
    *   lastUpgradeAt: string | null,
+   *   upgradePendingUntil: string | null,  // countdown deadline while upgradeStatus === 'pending'
+   *   upgradeInitiator: string | null,     // display name of whoever requested the upgrade
+   *   upgradeAbortedBy: string | null,     // display name of whoever aborted the countdown
+   *   countdownSeconds: number,            // server-owned countdown length
    * }>}
    *
    * @example
