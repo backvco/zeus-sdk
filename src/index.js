@@ -62,6 +62,7 @@
  *   sdk.sso         — instance-initiated SSO nonce validation
  *   sdk.email       — proxy transactional email through the console (instance-to-console)
  *   sdk.legal       — legal document text + clickwrap acceptance (MSA, Abuse Policy, Privacy Policy)
+ *   sdk.prober      — prober fleet: submit vantage-point manifest, pull signed verdicts
  *
  * Admin and platform-operations surfaces (org management, plans, spam config,
  * SMTP, instance enable/disable) live in the separate zeus-sdk-internal package,
@@ -85,6 +86,7 @@ import { ConsoleTokensService } from './services/consoletokens.js';
 import { HelpService } from './services/help.js';
 import { ForumService } from './services/forum.js';
 import { LegalService } from './services/legal.js';
+import { ProberService } from './services/prober.js';
 
 export { generateId, ENTITY } from './generateId.js';
 export { BaseSDK } from './base.js';
@@ -117,5 +119,6 @@ export class ZeusConsoleSDK extends BaseSDK {
     this.help = new HelpService(this);
     this.forum = new ForumService(this);
     this.legal = new LegalService(this);
+    this.prober = new ProberService(this);
   }
 }

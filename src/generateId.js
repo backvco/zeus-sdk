@@ -103,6 +103,12 @@ export const ENTITY = {
   // Legal
   LEGAL_DOCUMENT:       'ldc',   // A versioned legal document (MSA, Abuse Policy, Privacy Policy)
   LEGAL_ACCEPTANCE:     'lac',   // Record of a user accepting a legal document
+
+  // Prober fleet
+  PROBER_NODE:          'prb',   // Fleet node identity
+  PROBER_ENROLL_TOKEN:  'pet',   // One-time bootstrap token for node enrollment
+  PROBER_OBSERVATION:   'pob',   // Raw per-probe observation from a fleet node
+  PROBER_TERM_SESSION:  'pts',   // Prober remote-terminal session (CONTRACT.md §8.8)
 };
 
 /**

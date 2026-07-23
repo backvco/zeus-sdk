@@ -184,6 +184,24 @@ export class BaseSDK {
    * // later:
    * unsub();
    */
+  /**
+   * Build a same-origin WebSocket URL for a `baseURL`-relative endpoint, substituting
+   * http(s) -> ws(s) the same way `subscribe()`'s SSE URL is same-origin off `baseURL`.
+   * Callers open the returned URL with a raw `WebSocket` themselves (this class has no
+   * WS transport of its own — unlike `subscribe()`, which owns the whole EventSource
+   * lifecycle, a caller-held terminal/stream socket needs its own open/close control).
+   *
+   * @param {string} endpoint - Path relative to baseURL, e.g. "/admin/probers/prb_x/terminal/ws/pts_y".
+   * @returns {string} - Full `ws://`/`wss://` URL.
+   *
+   * @example
+   * const url = sdk._wsUrl(`/admin/probers/${proberId}/terminal/ws/${sessionId}`);
+   * const ws = new WebSocket(url);
+   */
+  _wsUrl(endpoint) {
+    return `${this.baseURL}${endpoint}`.replace(/^http/, 'ws');
+  }
+
   subscribe(channel, handler, eventTypes) {
     const url = `${this.baseURL}/events?channel=${encodeURIComponent(channel)}`;
     const es = new EventSource(url, { withCredentials: true });
