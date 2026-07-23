@@ -109,6 +109,7 @@ export const ENTITY = {
   PROBER_ENROLL_TOKEN:  'pet',   // One-time bootstrap token for node enrollment
   PROBER_OBSERVATION:   'pob',   // Raw per-probe observation from a fleet node
   PROBER_TERM_SESSION:  'pts',   // Prober remote-terminal session (CONTRACT.md §8.8)
+  PROBER_INSTALL_TOKEN: 'pit',   // Region install token — mints cattle probers per install fetch
 };
 
 /**
