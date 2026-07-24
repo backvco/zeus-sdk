@@ -87,4 +87,35 @@ export class ProberService {
   getVerdicts() {
     return this.sdk._fetch('/prober/verdicts', 'GET');
   }
+
+  /**
+   * Pull the most recent raw health-check results (probe observations) the fleet
+   * recorded for ONE of this instance's own endpoints — the per-check detail
+   * behind a verdict, including the error text on a failed check. Rows are kept
+   * for ~48h console-side and are hard-scoped to the calling instance.
+   *
+   * @param {object} params
+   * @param {string} params.endpoint - Record key, e.g. 'derived:app1:dev-d00:socket'.
+   * @param {number} [params.limit=20] - Max rows, newest first (console clamps to its own ceiling).
+   *
+   * @returns {Promise<{
+   *   observations: Array<{
+   *     region: string,
+   *     target: string,
+   *     outcome: 'ok' | 'fail' | 'timeout',
+   *     latencyMs: number | null,
+   *     error: string | null,
+   *     observedAt: string,
+   *   }>,
+   * }>}
+   *
+   * @example
+   * const { observations } = await sdk.prober.getObservations({
+   *   endpoint: 'derived:app1:dev-d00:socket',
+   *   limit: 20,
+   * });
+   */
+  getObservations({ endpoint, limit = 20 }) {
+    return this.sdk._fetch('/prober/observations', 'GET', { query: { endpoint, limit } });
+  }
 }
