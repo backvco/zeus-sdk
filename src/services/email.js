@@ -59,6 +59,37 @@ export class EmailService {
   }
 
   /**
+   * Send a console-rendered account-lifecycle email — for Zeus-native local users, who
+   * have no console user row and so can never pass `sdk.email.send()`'s in-org
+   * recipient check. The CONSOLE renders the body from its own fixed template for
+   * `event` (a hard four-item allowlist server-side; anything else 400s) — there is no
+   * `html` field on this route at all, which is exactly what lets `to` be any address
+   * without reopening the platform's SMTP identity as a relay. Instance (license-key)
+   * auth only.
+   *
+   * `data.link` / `data.loginUrl`, when present, must be an `https:` URL whose host is
+   * this instance's own subdomain host — the console rejects a mismatch (403) rather
+   * than send a genuine-looking email pointing at an attacker's domain.
+   *
+   * @param {object} params
+   * @param {'user.invited'|'user.password_reset'|'user.welcomed'|'user.approved'} params.event
+   *   - Must be one of these four; any other value is rejected.
+   * @param {string} params.to    - Recipient address. Any address is accepted (console-rendered body).
+   * @param {object} [params.data] - Template variables: `name`, `link`, `username`, `loginUrl`, `password`.
+   * @returns {Promise<{ sent: boolean, reason?: string, messageId?: string }>}
+   *
+   * @example
+   * await sdk.email.sendLifecycle({
+   *   event: 'user.password_reset',
+   *   to: user.email,
+   *   data: { name: user.fullName, link: `${origin}/reset?token=${token}` },
+   * });
+   */
+  sendLifecycle({ event, to, data }) {
+    return this.sdk._fetch('/email/lifecycle', 'POST', { body: { event, to, data } });
+  }
+
+  /**
    * Ask the console to send its email-verification message to a console user
    * of the instance's org (the emailed link/code lands on the console UI).
    * Instance (license-key) auth only. 404 if no console user in the org has
