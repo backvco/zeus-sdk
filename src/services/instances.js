@@ -89,12 +89,15 @@ export class InstancesService {
    *   id: string,          // "ins_..."
    *   name: string,
    *   subdomain: string,
-   *   licenseKey: string,  // "ins_..." key — store securely, shown only once
    *   planId: string,
    *   hostingMode: 'cloud' | 'self',
    *   provisioningStatus: 'provisioning' | 'awaiting_install' | 'ready' | 'failed',
    *   createdAt: string,
    * }>}
+   *   Does NOT include the license key — the console never returns it from a plain
+   *   create/get/list response (ZC-SEC-01). For a self-hosted instance's connection env,
+   *   call `getLicenseKey({ id })` (owner/admin only) once the instance exists, or use
+   *   `getInstallCommand()` which already embeds it.
    *   On failure with a paid plan + no payment method: rejects with `err.status === 402`
    *   and `err.body.needsPaymentMethod === true`. On failure with a declined/failed
    *   charge: rejects with `err.status === 402` and `err.body.paymentFailed === true`
@@ -121,8 +124,8 @@ export class InstancesService {
    *   }
    *   throw err;
    * }
-   * // Store instance.licenseKey in your deployment secrets
-   * console.log('License key:', instance.licenseKey);
+   * // Response has no license key — fetch it explicitly (owner/admin only) when needed:
+   * const { licenseKey } = await sdk.instances.getLicenseKey({ id: instance.id });
    */
   register({ name, subdomain, planId, port, hostingMode, billingChoice, billingPeriod, paymentMethodId }) {
     return this.sdk._fetch('/instances', 'POST', {
@@ -369,6 +372,21 @@ export class InstancesService {
    * // curl -H "X-License-Key: ins_..." https://prod.example.com/api/health
    */
   getCurlCommand({ id }) { return this.sdk._fetch(`/instances/${id}/curl-command`, 'GET'); }
+
+  /**
+   * Reveal an instance's license key (ZC-SEC-01). Owner/admin only — a plain org member
+   * gets a 403. Every successful call is audit-logged on the console side, so treat this
+   * as a deliberate, traceable action rather than something to call speculatively (e.g.
+   * gate the UI behind an explicit "reveal" click, don't prefetch it into a list view).
+   *
+   * @param {object} params
+   * @param {string} params.id - Instance ID ("ins_...").
+   * @returns {Promise<{ licenseKey: string }>}
+   *
+   * @example
+   * const { licenseKey } = await sdk.instances.getLicenseKey({ id: 'ins_abc123' });
+   */
+  getLicenseKey({ id }) { return this.sdk._fetch(`/instances/${id}/license-key`, 'GET'); }
 
   /**
    * Get a one-time SSO redirect URL to log into the instance's Zeus UI

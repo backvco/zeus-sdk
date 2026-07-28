@@ -85,21 +85,25 @@ export class UsersService {
    * Sends an invitation email with an accept link containing a short-lived token.
    *
    * @param {object} params
-   * @param {string} params.email               - Email address to invite.
-   * @param {string} [params.name]              - Pre-fill the invitee's display name.
-   * @param {string} [params.avatarUrl]         - Pre-fill avatar URL.
-   * @param {'admin'|'member'} [params.role]    - Role to grant on accept. Defaults to "member".
+   * @param {string} params.email                 - Email address to invite.
+   * @param {string} [params.name]                - Pre-fill the invitee's display name.
+   * @param {string} [params.avatarUrl]           - Pre-fill avatar URL.
+   * @param {'owner'} [params.role]                - Pass "owner" to invite an org owner (bypass
+   *   role — caller must already be an owner). Omit for a regular member; the granted
+   *   permissions are determined by `permissionRoleId` instead.
+   * @param {string} [params.permissionRoleId]    - IAM permission role (`permission_roles.id`,
+   *   system-defined or custom) to grant on accept. Ignored when `role` is "owner".
    * @returns {Promise<{ inviteId: string, email: string, role: string, expiresAt: string }>}
    *
    * @example
    * const invite = await sdk.users.invite({
    *   email: 'bob@example.com',
    *   name: 'Bob',
-   *   role: 'member',
+   *   permissionRoleId: 'prole_xyz',
    * });
    * console.log('Invite sent, expires:', invite.expiresAt);
    */
-  invite({ email, name, avatarUrl, role }) { return this.sdk._fetch('/users/invite', 'POST', { body: { email, name, avatarUrl, role } }); }
+  invite({ email, name, avatarUrl, role, permissionRoleId }) { return this.sdk._fetch('/users/invite', 'POST', { body: { email, name, avatarUrl, role, permissionRoleId } }); }
 
   /**
    * Revoke a pending invite before the recipient accepts it.

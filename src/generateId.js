@@ -92,6 +92,7 @@ export const ENTITY = {
   PERMISSION_POLICY:    'pol',   // Named permission policy document
   PERMISSION_ROLE:      'prole', // User-defined permission role (bag of policies)
   CONSOLE_API_TOKEN:    'ctk',   // Console service API token
+  CONSOLE_TOKEN_INSTANCE: 'cti', // Join table: console API token ↔ instance (per-token access grant)
 
   // Forum
   FORUM_CATEGORY:       'fct',   // Forum category
