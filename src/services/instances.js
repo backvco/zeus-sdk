@@ -287,6 +287,9 @@ export class InstancesService {
    *   upgradeAbortedBy: string | null,    // display name of whoever aborted the countdown
    *   lastUpgradeAt: string | null,
    *   createdAt: string,
+   *   namingSlug: string | null,          // 5-char base36 id embedded in this instance's cloud
+   *                                       // resource names (e.g. "zeusk8s-machine-<slug>"), set
+   *                                       // once at provision time. Null for pre-1.0.8 instances.
    * }>>}
    *
    * @example
@@ -323,6 +326,9 @@ export class InstancesService {
    *   upgradeAbortedBy: string | null,    // display name of whoever aborted the countdown
    *   lastUpgradeAt: string | null,
    *   createdAt: string,
+   *   namingSlug: string | null,          // 5-char base36 id embedded in this instance's cloud
+   *                                       // resource names (e.g. "zeusk8s-machine-<slug>"), set
+   *                                       // once at provision time. Null for pre-1.0.8 instances.
    * }>}
    *
    * @example
@@ -439,11 +445,12 @@ export class InstancesService {
    *     zeusVersion: '1.4.2',
    *     healthy: true,
    *     dnsEndpointsActive: await countAutomatedEndpoints(),
+   *     instanceSlug: await ensureInstanceSlug(), // 5-char naming reference id
    *   });
    * }, 60_000);
    */
-  heartbeat({ licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy, dnsEndpointsActive }) {
-    return this.sdk._fetch('/heartbeat', 'POST', { body: { licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy, dnsEndpointsActive } });
+  heartbeat({ licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy, dnsEndpointsActive, instanceSlug }) {
+    return this.sdk._fetch('/heartbeat', 'POST', { body: { licenseKey, subdomain, vcpuAvg, clusterCount, zeusVersion, healthy, dnsEndpointsActive, instanceSlug } });
   }
 
   /**
