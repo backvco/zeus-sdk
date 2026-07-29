@@ -168,24 +168,50 @@ export class BaseSDK {
    * Subscribe to a server-sent event channel. Returns an unsubscribe function.
    * Browser only — uses EventSource with credentials.
    *
+   * The server publishes NAMED SSE events (ssePublish's `event:` field), and EventSource
+   * has no wildcard listener — so the caller must say which event types it wants via
+   * `eventTypes`. The forum types remain the default for backward compatibility.
+   *
    * @param {string}   channel  - Channel name, e.g. "forum:post:fpo_xxx"
    * @param {Function} handler  - Called with (eventType: string, data: any)
+   * @param {string[]} [eventTypes] - Named event types to listen for on this channel.
    * @returns {() => void} Call to close the connection.
    *
    * @example
-   * const unsub = sdk.subscribe('forum:post:fpo_abc', (type, data) => {
-   *   if (type === 'answer.new') setAnswers(prev => [...prev, data]);
-   * });
+   * const unsub = sdk.subscribe('instance:ins_abc:upgrade', (type, data) => {
+   *   if (type === 'upgrade.step') setStep(data.step);
+   * }, ['upgrade.step', 'upgrade.done', 'upgrade.failed']);
    * // later:
    * unsub();
    */
-  subscribe(channel, handler) {
+  /**
+   * Build a same-origin WebSocket URL for a `baseURL`-relative endpoint, substituting
+   * http(s) -> ws(s) the same way `subscribe()`'s SSE URL is same-origin off `baseURL`.
+   * Callers open the returned URL with a raw `WebSocket` themselves (this class has no
+   * WS transport of its own — unlike `subscribe()`, which owns the whole EventSource
+   * lifecycle, a caller-held terminal/stream socket needs its own open/close control).
+   *
+   * @param {string} endpoint - Path relative to baseURL, e.g. "/admin/probers/prb_x/terminal/ws/pts_y".
+   * @returns {string} - Full `ws://`/`wss://` URL.
+   *
+   * @example
+   * const url = sdk._wsUrl(`/admin/probers/${proberId}/terminal/ws/${sessionId}`);
+   * const ws = new WebSocket(url);
+   */
+  _wsUrl(endpoint) {
+    return `${this.baseURL}${endpoint}`.replace(/^http/, 'ws');
+  }
+
+  subscribe(channel, handler, eventTypes) {
     const url = `${this.baseURL}/events?channel=${encodeURIComponent(channel)}`;
     const es = new EventSource(url, { withCredentials: true });
     const wrap = (type) => (e) => {
       try { handler(type, JSON.parse(e.data)); } catch { /* ignore bad JSON */ }
     };
-    for (const type of ['answer.new', 'answer.updated', 'answer.deleted', 'answer.accepted', 'forum.answer.new']) {
+    const types = eventTypes?.length
+      ? eventTypes
+      : ['answer.new', 'answer.updated', 'answer.deleted', 'answer.accepted', 'forum.answer.new'];
+    for (const type of types) {
       es.addEventListener(type, wrap(type));
     }
     es.onerror = () => {}; // suppress console noise on disconnect

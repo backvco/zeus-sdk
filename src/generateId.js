@@ -41,11 +41,15 @@ export const ENTITY = {
   // Instances
   INSTANCE:             'ins',   // A deployed Zeus instance
   INSTANCE_KEYPAIR:     'kpr',   // RSA keypair for instance↔console trust
+  INSTANCE_MEMBER:      'ism',   // Join table: instance ↔ user (per-instance access grant)
+  INSTANCE_PROBE_NONCE: 'ipn',   // Single-use reachability-probe nonce issued on heartbeat
+  DB_CLUSTER:           'dbc',   // Postgres server we operate, for cloud-hosted instance provisioning
 
   // Billing
   PLAN:                 'pln',   // Subscription plan (e.g. "Starter", "Pro")
   PLAN_VERSION:         'plv',   // Immutable snapshot of a plan's pricing
   SUBSCRIPTION:         'sub',   // An org's active plan subscription
+  INSTANCE_AUTH_HOLD:   'iah',   // Manual-capture Stripe PaymentIntent hold for a pending instance purchase
   ORG_PRICING:          'opr',   // Custom per-org pricing override
   VCPU_PRICING_TIER:    'vpt',   // vCPU price tier (usage-based plans)
 
@@ -88,6 +92,7 @@ export const ENTITY = {
   PERMISSION_POLICY:    'pol',   // Named permission policy document
   PERMISSION_ROLE:      'prole', // User-defined permission role (bag of policies)
   CONSOLE_API_TOKEN:    'ctk',   // Console service API token
+  CONSOLE_TOKEN_INSTANCE: 'cti', // Join table: console API token ↔ instance (per-token access grant)
 
   // Forum
   FORUM_CATEGORY:       'fct',   // Forum category
@@ -95,6 +100,17 @@ export const ENTITY = {
   FORUM_ANSWER:         'fan',   // Answer to a forum post
   FORUM_VOTE:           'fvt',   // Vote on a post or answer
   FORUM_SUBSCRIPTION:   'fsub',  // User following a forum post for email alerts
+
+  // Legal
+  LEGAL_DOCUMENT:       'ldc',   // A versioned legal document (MSA, Abuse Policy, Privacy Policy)
+  LEGAL_ACCEPTANCE:     'lac',   // Record of a user accepting a legal document
+
+  // Prober fleet
+  PROBER_NODE:          'prb',   // Fleet node identity
+  PROBER_ENROLL_TOKEN:  'pet',   // One-time bootstrap token for node enrollment
+  PROBER_OBSERVATION:   'pob',   // Raw per-probe observation from a fleet node
+  PROBER_TERM_SESSION:  'pts',   // Prober remote-terminal session (CONTRACT.md §8.8)
+  PROBER_INSTALL_TOKEN: 'pit',   // Region install token — mints cattle probers per install fetch
 };
 
 /**

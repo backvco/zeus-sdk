@@ -85,21 +85,25 @@ export class UsersService {
    * Sends an invitation email with an accept link containing a short-lived token.
    *
    * @param {object} params
-   * @param {string} params.email               - Email address to invite.
-   * @param {string} [params.name]              - Pre-fill the invitee's display name.
-   * @param {string} [params.avatarUrl]         - Pre-fill avatar URL.
-   * @param {'admin'|'member'} [params.role]    - Role to grant on accept. Defaults to "member".
+   * @param {string} params.email                 - Email address to invite.
+   * @param {string} [params.name]                - Pre-fill the invitee's display name.
+   * @param {string} [params.avatarUrl]           - Pre-fill avatar URL.
+   * @param {'owner'} [params.role]                - Pass "owner" to invite an org owner (bypass
+   *   role — caller must already be an owner). Omit for a regular member; the granted
+   *   permissions are determined by `permissionRoleId` instead.
+   * @param {string} [params.permissionRoleId]    - IAM permission role (`permission_roles.id`,
+   *   system-defined or custom) to grant on accept. Ignored when `role` is "owner".
    * @returns {Promise<{ inviteId: string, email: string, role: string, expiresAt: string }>}
    *
    * @example
    * const invite = await sdk.users.invite({
    *   email: 'bob@example.com',
    *   name: 'Bob',
-   *   role: 'member',
+   *   permissionRoleId: 'prole_xyz',
    * });
    * console.log('Invite sent, expires:', invite.expiresAt);
    */
-  invite({ email, name, avatarUrl, role }) { return this.sdk._fetch('/users/invite', 'POST', { body: { email, name, avatarUrl, role } }); }
+  invite({ email, name, avatarUrl, role, permissionRoleId }) { return this.sdk._fetch('/users/invite', 'POST', { body: { email, name, avatarUrl, role, permissionRoleId } }); }
 
   /**
    * Revoke a pending invite before the recipient accepts it.
@@ -125,6 +129,8 @@ export class UsersService {
    * @param {string} params.token    - Invite token from the email link.
    * @param {string} params.name     - The new user's display name.
    * @param {string} params.password - Password to set for the new account.
+   * @param {boolean} params.acceptLegal - Must be `true` — confirms the invitee accepted the
+   *   current MSA/Abuse Policy/Privacy Policy. The API 400s without it.
    * @returns {Promise<{ userId: string, orgId: string, role: string }>}
    *
    * @example
@@ -133,10 +139,11 @@ export class UsersService {
    *   token,
    *   name: 'Bob Smith',
    *   password: 'secure-pass-1!',
+   *   acceptLegal: true,
    * });
    * // User is now logged in; session.role tells you their role
    */
-  acceptInvite({ token, name, password }) { return this.sdk._fetch('/users/invite/accept', 'POST', { body: { token, name, password } }); }
+  acceptInvite({ token, name, password, acceptLegal }) { return this.sdk._fetch('/users/invite/accept', 'POST', { body: { token, name, password, acceptLegal } }); }
 
   /**
    * Change a user's role. You must be an admin to call this.
@@ -151,6 +158,23 @@ export class UsersService {
    * await sdk.users.updateRole({ userId: 'usr_bob', role: 'admin' });
    */
   updateRole({ userId, role }) { return this.sdk._fetch(`/users/${userId}/role`, 'PATCH', { body: { role } }); }
+
+  /**
+   * Opt a user in/out of broadcast alert email (default in). The preference
+   * propagates to Zeus instances via SSO, so instance alert mail honors it.
+   * Users can set their own; owners/admins can set anyone's (e.g. silence a
+   * shared test account whose mailbox nobody reads). Delivery preference only
+   * — separate from email verification.
+   *
+   * @param {object} params
+   * @param {string} params.userId    - Target user ID ("usr_...").
+   * @param {boolean} params.enabled  - Receive broadcast alert email.
+   * @returns {Promise<{ ok: true, alertEmails: boolean }>}
+   *
+   * @example
+   * await sdk.users.setAlertEmails({ userId: 'usr_bob', enabled: false });
+   */
+  setAlertEmails({ userId, enabled }) { return this.sdk._fetch(`/users/${userId}/alert-emails`, 'PATCH', { body: { enabled } }); }
 
   /**
    * Remove a user from the organisation. The user's account is not deleted —

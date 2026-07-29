@@ -47,20 +47,39 @@ export class BillingService {
   getSubscription({ instanceId }) { return this.sdk._fetch(`/billing/subscriptions/${instanceId}`, 'GET'); }
 
   /**
-   * List all available plans with default-version pricing.
-   * Used to display the plan picker when a user wants to change their instance plan.
+   * List all available plans with default-version pricing. Used both to display the
+   * plan picker when creating a new instance (`sdk.instances.register()`) and when
+   * changing an existing instance's plan.
    *
    * @returns {Promise<{ plans: Array<{
    *   id: string,
-   *   name: string,
+   *   name: string,            // slug — match on this in code, never on displayName
+   *   displayName: string,     // human-facing label, e.g. "Starter"
+   *   isFree: boolean,        // true for the plan capped at one instance per org and
+   *                            // exempt from payment-method validation on create
+   *   selfServe: boolean,     // false = sales-assisted only (e.g. enterprise) — exclude
+   *                            // from any customer-facing plan picker; admin surfaces
+   *                            // still get it via this same call
+   *   sortOrder: number,      // server-owned display order, ascending
    *   vcpuIncluded: number,
    *   clusterLimit: number | null,
    *   seatLimit: number | null,
-   *   trialDays: number,
+   *   trialDays: number,      // display-only marketing figure; actual trial timing is
+   *                            // the org-wide trial window, not per-plan
    *   monthlyPriceCents: number,
-   *   annualPriceCents: number | null,
+   *   annualMonthlyPriceCents: number | null,  // the MONTHLY rate billed annually —
+   *                                             // comparable to monthlyPriceCents, NOT
+   *                                             // the yearly total
+   *   annualTotalCents: number | null,         // DERIVED yearly total (annualMonthlyPriceCents
+   *                                             // * 12, or monthlyPriceCents * 12 if no
+   *                                             // discounted rate is configured) — never
+   *                                             // multiply annualMonthlyPriceCents yourself,
+   *                                             // use this field
+   *   annualAvailable: boolean,                // true only when a discounted annual rate is
+   *                                             // actually configured (gates "annual" as an
+   *                                             // advertised option, e.g. savings %)
    *   vcpuOverageRateCents: number,
-   * }> }>}
+   * }> }>} plans are already sorted by sortOrder — don't re-sort in the caller.
    */
   listPlans() { return this.sdk._fetch('/billing/plans', 'GET'); }
 
@@ -136,8 +155,29 @@ export class BillingService {
   /** Remove (detach) an account card. @param {{id:string}} p */
   deletePaymentMethod({ id }) { return this.sdk._fetch(`/billing/payment-methods/${id}`, 'DELETE'); }
 
-  /** Link an account card to an instance's subscription. @param {{paymentMethodId:string, instanceId:string}} p */
-  linkPaymentMethod({ paymentMethodId, instanceId }) { return this.sdk._fetch('/billing/payment-methods/link', 'POST', { body: { paymentMethodId, instanceId } }); }
+  /**
+   * Set (or clear) a card's friendly name. Stripe has no native nickname field — this is
+   * stored in the PaymentMethod's metadata. Pass '' to clear.
+   * @param {object} params
+   * @param {string} params.id       - Payment method id ("pm_...").
+   * @param {string} params.nickname - Friendly name, max ~40 chars. '' clears it.
+   * @returns {Promise<{ id: string, nickname: string }>}
+   *
+   * @example
+   * await sdk.billing.setPaymentMethodNickname({ id: 'pm_abc123', nickname: 'Ops Amex' });
+   */
+  setPaymentMethodNickname({ id, nickname }) { return this.sdk._fetch(`/billing/payment-methods/${id}`, 'PATCH', { body: { nickname } }); }
+
+  /**
+   * Link an account card to an instance's subscription.
+   * @param {object} params
+   * @param {string} params.paymentMethodId - Payment method id ("pm_...").
+   * @param {string} params.instanceId      - Instance id ("ins_...").
+   * @param {string} [params.nickname]      - Optional friendly name to stamp onto the
+   *                                          card at link time (e.g. a card just added
+   *                                          specifically to fund this instance).
+   */
+  linkPaymentMethod({ paymentMethodId, instanceId, nickname }) { return this.sdk._fetch('/billing/payment-methods/link', 'POST', { body: { paymentMethodId, instanceId, nickname } }); }
 
   /**
    * List all invoices for an instance, newest first.
